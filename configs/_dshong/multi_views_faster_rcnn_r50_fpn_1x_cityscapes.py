@@ -46,6 +46,7 @@ train_pipeline = [
              label='gt_labels')),  # NOTE: must be used for multi-view training
 ]
 data = dict(
+    samples_per_gpu=2,
     train=dict(dataset=dict(pipeline=train_pipeline))
 )
 
