@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+from .multi_view import *  # noqa: F401,F403
 from .atss import ATSS
 from .autoassign import AutoAssign
 from .base import BaseDetector
