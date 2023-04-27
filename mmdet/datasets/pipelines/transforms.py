@@ -3,11 +3,14 @@ import copy
 import inspect
 import math
 import warnings
+import numbers
 
 import cv2
 import mmcv
 import numpy as np
 from numpy import random
+import torch
+import torchvision
 
 from mmdet.core import BitmapMasks, PolygonMasks, find_inside_bboxes
 from mmdet.core.evaluation.bbox_overlaps import bbox_overlaps
@@ -676,6 +679,82 @@ class Pad:
 
 
 @PIPELINES.register_module()
+class PostPad(Pad):
+    def __init__(self, *args, **kwargs):
+        super(PostPad, self).__init__(*args, **kwargs)
+
+    def _impad(self, img, shape=None, padding=None, pad_val=0, padding_mode='constant'):
+        """ Implementation of mmcv.impad function for tensor image """
+        assert (shape is None) ^ (padding is None)
+        if shape is not None:  # (h, w)
+            padding = (0, shape[1] - img.shape[-1], 0, shape[0] - img.shape[-2])
+
+        # check pad_val
+        if isinstance(pad_val, tuple):
+            assert len(pad_val) == img.shape[-1]
+        elif not isinstance(pad_val, numbers.Number):
+            raise TypeError('pad_val must be a int or a tuple. '
+                            f'But received {type(pad_val)}')
+        
+        # check padding
+        if isinstance(padding, tuple) and len(padding) in [2, 4]:
+            if len(padding) == 2:
+                padding = (padding[0], padding[1], padding[0], padding[1])
+        elif isinstance(padding, numbers.Number):
+            padding = (padding, padding, padding, padding)
+        else:
+            raise ValueError('Padding must be a int or a 2, or 4 element tuple.'
+                             f'But received {padding}')
+
+        # check padding mode
+        assert padding_mode in ['constant', 'reflect', 'replicate', 'circular']
+
+        img = torch.nn.functional.pad(img, pad=padding, mode=padding_mode, value=pad_val)
+
+        return img
+
+    def _pad_img(self, img):
+        """Pad images according to ``self.size``."""
+        pad_val = self.pad_val.get('img', 0)
+        img_list = []
+        return_single = False
+        if len(img.shape) == 3:
+            img = img.unsqueeze(0)
+            return_single = True
+        
+        for i in range(len(img)):
+            if self.pad_to_square:
+                max_size = max(img[i].shape[:2])
+                self.size = (max_size, max_size)
+            if self.size is not None:
+                img_list.append(self._impad(img[i], shape=self.size, pad_val=pad_val))
+            elif self.size_divisor is not None:
+                pad_h = int(np.ceil(img[i].shape[-2] / self.size_divisor)) * self.size_divisor
+                pad_w = int(np.ceil(img[i].shape[-1] / self.size_divisor)) * self.size_divisor
+                img_list.append(self._impad(img[i], shape=(pad_h, pad_w), pad_val=pad_val))
+            else:
+                Warning('Please set size or size_divisor for padding')
+                img_list.append(img[i])
+        img = torch.stack(img_list, dim=0)
+
+        if return_single:
+            img = img.squeeze(0)
+
+        return img
+
+    def __call__(self, img):
+        """Call function to pad images.
+
+        Args:
+            img (torch.Tensor): image tensor.
+
+        Returns:
+            img: padded img
+        """
+        return self._pad_img(img)
+
+
+@PIPELINES.register_module()
 class Normalize:
     """Normalize the image.
 
@@ -714,6 +793,31 @@ class Normalize:
         repr_str = self.__class__.__name__
         repr_str += f'(mean={self.mean}, std={self.std}, to_rgb={self.to_rgb})'
         return repr_str
+
+
+@PIPELINES.register_module()
+class PostNormalize(Normalize):
+    def __init__(self, mean, std, to_rgb=True):
+        super(PostNormalize, self).__init__(mean, std, to_rgb)
+        self.normalize = torchvision.transforms.Normalize(self.mean, self.std)
+
+    def __call__(self, img):
+        """Call function to normalize images.
+
+        Args:
+            img (torch.Tensor): with shape (bs, c, h, w)
+
+        Returns:
+            img (torch.Tensor): Normalized img.
+        """
+        if len(img.shape) == 3:
+            return self.normalize(img)
+        elif len(img.shape) == 4:
+            for i in range(len(img)):
+                img[i] = self.normalize(img[i])
+            return img
+        else:
+            raise ValueError('img should be with shape (bs, c, h, w)')
 
 
 @PIPELINES.register_module()
