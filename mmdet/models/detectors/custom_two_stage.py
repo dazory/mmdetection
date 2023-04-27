@@ -3,13 +3,13 @@ import warnings
 
 import torch
 
-from ..builder import DETECTORS, build_backbone, build_head, build_neck
-from .base import BaseDetector
+from ..builder import DETECTORS, build_loss
+from .two_stage import TwoStageDetector
 from ...datasets.pipelines import Compose
 
 
 @DETECTORS.register_module()
-class CustomTwoStageDetector(BaseDetector):
+class CustomTwoStageDetector(TwoStageDetector):
     """Base class for two-stage detectors.
 
     Two-stage detectors typically consisting of a region proposal network and a
@@ -17,85 +17,27 @@ class CustomTwoStageDetector(BaseDetector):
     """
 
     def __init__(self,
-                 backbone,
-                 neck=None,
-                 rpn_head=None,
-                 roi_head=None,
-                 train_cfg=None,
-                 test_cfg=None,
-                 pretrained=None,
-                 init_cfg=None,
                  num_views=1,
                  use_clean=True,
                  pipelines=None,
+                 hook_name_layer=None,
+                 additional_loss=None,
+                 *args, **kwargs,
                  ):
-        super(CustomTwoStageDetector, self).__init__(init_cfg)
-        if pretrained:
-            warnings.warn('DeprecationWarning: pretrained is deprecated, '
-                          'please use "init_cfg" instead')
-            backbone.pretrained = pretrained
-        self.backbone = build_backbone(backbone)
-
-        if neck is not None:
-            self.neck = build_neck(neck)
-
-        if rpn_head is not None:
-            rpn_train_cfg = train_cfg.rpn if train_cfg is not None else None
-            rpn_head_ = rpn_head.copy()
-            rpn_head_.update(train_cfg=rpn_train_cfg, test_cfg=test_cfg.rpn)
-            self.rpn_head = build_head(rpn_head_)
-
-        if roi_head is not None:
-            # update train and test cfg here for now
-            # TODO: refactor assigner & sampler
-            rcnn_train_cfg = train_cfg.rcnn if train_cfg is not None else None
-            roi_head.update(train_cfg=rcnn_train_cfg)
-            roi_head.update(test_cfg=test_cfg.rcnn)
-            roi_head.pretrained = pretrained
-            self.roi_head = build_head(roi_head)
-
-        self.train_cfg = train_cfg
-        self.test_cfg = test_cfg
-
+        super(CustomTwoStageDetector, self).__init__(*args, **kwargs)
         self.num_views = num_views
         self.use_clean = use_clean
         assert pipelines is not None, 'pipelines must be specified'
         self.pipelines = [Compose(pipeline) for pipeline in pipelines]
 
-    @property
-    def with_rpn(self):
-        """bool: whether the detector has RPN"""
-        return hasattr(self, 'rpn_head') and self.rpn_head is not None
+        # hooks
+        self.hook_data = dict()
+        self.handles = []
+        self.hook_name_layer = hook_name_layer if hook_name_layer is not None else dict()
+        self._register_hook(self.hook_name_layer)
 
-    @property
-    def with_roi_head(self):
-        """bool: whether the detector has a RoI head"""
-        return hasattr(self, 'roi_head') and self.roi_head is not None
-
-    def extract_feat(self, img):
-        """Directly extract features from the backbone+neck."""
-        x = self.backbone(img)
-        if self.with_neck:
-            x = self.neck(x)
-        return x
-
-    def forward_dummy(self, img):
-        """Used for computing network flops.
-
-        See `mmdetection/tools/analysis_tools/get_flops.py`
-        """
-        outs = ()
-        # backbone
-        x = self.extract_feat(img)
-        # rpn
-        if self.with_rpn:
-            rpn_outs = self.rpn_head(x)
-            outs = outs + (rpn_outs, )
-        proposals = torch.randn(1000, 4).to(img.device)
-        # roi_head
-        roi_outs = self.roi_head.forward_dummy(x, proposals)
-        outs = outs + (roi_outs, )
-        return outs
+        # additional loss
+        self.additional_loss = build_loss(additional_loss) if additional_loss is not None else None
 
     def forward_train(self,
                       img,
@@ -134,6 +76,14 @@ class CustomTwoStageDetector(BaseDetector):
         Returns:
             dict[str, Tensor]: a dictionary of loss components
         """
+        ''' post-transforms'''
+        imgs = []
+        for i in range(self.num_views):
+            imgs.append(self.pipelines[i](img))
+        imgs = torch.cat(imgs, dim=0)
+
+
+        ''' The first view is forwarded '''
         x = self.extract_feat(img)
 
         losses = dict()
@@ -160,62 +110,69 @@ class CustomTwoStageDetector(BaseDetector):
                                                  **kwargs)
         losses.update(roi_losses)
 
+        ''' The rest views are forwarded '''
+        x_rest = self.extract_feat(imgs[1:])
+
+        # RPN forward and loss
+        gt_bboxes_rest = gt_bboxes * (self.num_views - 1)
+        gt_labels_rest = gt_labels * (self.num_views - 1)
+        gt_bboxes_ignore_rest = sum(gt_bboxes_ignore, []) if gt_bboxes_ignore is not None else gt_bboxes_ignore
+        gt_masks_rest = sum(gt_masks, []) if gt_masks is not None else gt_masks
+        img_metas_rest = sum([img_metas] * (self.num_views - 1), [])
+        _ = self.roi_head.forward_train(x_rest, img_metas_rest, proposal_list,
+                                                 gt_bboxes_rest, gt_labels_rest,
+                                                 gt_bboxes_ignore_rest, gt_masks_rest,
+                                                 **kwargs)
+
+        if self.additional_loss is not None:
+            additional_loss = self.additional_loss(self.hook_data)
+            losses.update(additional_loss)
+
+        self._remove_hook_data()
+
         return losses
 
-    async def async_simple_test(self,
-                                img,
-                                img_meta,
-                                proposals=None,
-                                rescale=False):
-        """Async test without augmentation."""
-        assert self.with_bbox, 'Bbox head must be implemented.'
-        x = self.extract_feat(img)
+    def _find_layer(self, model, layer_name):
+        '''
+        Input:
+                layer_name = (str)
+        Example:
+                layer_name = 'rpn.rpn_cls_layer'
+                layer = find_layer(model, layer_name)
+                print(layer)
+        '''
+        if isinstance(layer_name, str):
+            layer_name = layer_name.split('.')
 
-        if proposals is None:
-            proposal_list = await self.rpn_head.async_simple_test_rpn(
-                x, img_meta)
-        else:
-            proposal_list = proposals
+        if len(layer_name) != 0:
+            for name, child in model.named_children():
+                if name == layer_name[0]:
+                    if len(layer_name) == 1:
+                        return child
+                    child = self._find_layer(child, layer_name[1:])
+                    if child != None:
+                        return child
+        return None
 
-        return await self.roi_head.async_simple_test(
-            x, proposal_list, img_meta, rescale=rescale)
+    def _get_hook(self, name):
+        def _hook(module, input, output):
+            if self.hook_data.get(name) is None:
+                self.hook_data[name] = []
+            self.hook_data[name].append(output)
+        return _hook
 
-    def simple_test(self, img, img_metas, proposals=None, rescale=False):
-        """Test without augmentation."""
+    def _register_hook(self, hook_name_layer):
+        assert isinstance(hook_name_layer, dict)
 
-        assert self.with_bbox, 'Bbox head must be implemented.'
-        x = self.extract_feat(img)
-        if proposals is None:
-            proposal_list = self.rpn_head.simple_test_rpn(x, img_metas)
-        else:
-            proposal_list = proposals
+        for hook_name, layer_name in hook_name_layer.items():
+            layer = self._find_layer(self, layer_name)
+            assert layer is not None, 'Hook layer is not found'
+            handle = layer.register_forward_hook(self._get_hook(hook_name))
+            self.handles.append(handle)
+            print(f"layer {layer_name} is hooked")
 
-        return self.roi_head.simple_test(
-            x, proposal_list, img_metas, rescale=rescale)
+    def _remove_hook_data(self):
+        self.hook_data = dict()
 
-    def aug_test(self, imgs, img_metas, rescale=False):
-        """Test with augmentations.
-
-        If rescale is False, then returned bboxes and masks will fit the scale
-        of imgs[0].
-        """
-        x = self.extract_feats(imgs)
-        proposal_list = self.rpn_head.aug_test_rpn(x, img_metas)
-        return self.roi_head.aug_test(
-            x, proposal_list, img_metas, rescale=rescale)
-
-    def onnx_export(self, img, img_metas):
-
-        img_shape = torch._shape_as_tensor(img)[2:]
-        img_metas[0]['img_shape_for_onnx'] = img_shape
-        x = self.extract_feat(img)
-        proposals = self.rpn_head.onnx_export(x, img_metas)
-        if hasattr(self.roi_head, 'onnx_export'):
-            return self.roi_head.onnx_export(x, proposals, img_metas)
-        else:
-            raise NotImplementedError(
-                f'{self.__class__.__name__} can not '
-                f'be exported to ONNX. Please refer to the '
-                f'list of supported models,'
-                f'https://mmdetection.readthedocs.io/en/latest/tutorials/pytorch2onnx.html#list-of-supported-models-exportable-to-onnx'  # noqa E501
-            )
+    def forward_dummy(self, img):
+        raise NotImplementedError('forward_dummy is not implemented')
