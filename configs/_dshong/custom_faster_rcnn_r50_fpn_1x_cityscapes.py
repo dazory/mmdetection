@@ -10,8 +10,8 @@ use_clean = True
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 default_pipeline = [
-    dict(type='Normalize', **img_norm_cfg),
-    dict(type='Pad', size_divisor=32)]
+    dict(type='PostNormalize', **img_norm_cfg),  # NOTE: `to_rgb` is not supported yet
+    dict(type='PostPad', size_divisor=32)]
 aug_pipeline = []
 
 model = dict(
@@ -38,6 +38,10 @@ model = dict(
         default_pipeline,
         aug_pipeline + default_pipeline,
     ],
+    hook_name_layer=dict(before_branch='roi_head.bbox_head.shared_fcs.1'),
+    additional_loss=dict(type='MultiViewLoss',
+                         criterion=dict(type='JSDLoss', target='before_branch', reduction='batchmean', name='loss_additional'),
+                         ),
 )
 
 ''' Dataset '''
