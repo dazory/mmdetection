@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import copy
 import warnings
 
 import torch
@@ -79,9 +80,8 @@ class CustomTwoStageDetector(TwoStageDetector):
         ''' post-transforms'''
         imgs = []
         for i in range(self.num_views):
-            imgs.append(self.pipelines[i](img))
+            imgs.append(self.pipelines[i](copy.deepcopy(img)))
         imgs = torch.cat(imgs, dim=0)
-
 
         ''' The first view is forwarded '''
         x = self.extract_feat(img)
