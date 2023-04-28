@@ -797,9 +797,11 @@ class Normalize:
 
 @PIPELINES.register_module()
 class PostNormalize(Normalize):
-    def __init__(self, mean, std, to_rgb=True):
+    def __init__(self, mean, std, to_rgb=True, from_255=False, to_1=False):
         super(PostNormalize, self).__init__(mean, std, to_rgb)
         self.normalize = torchvision.transforms.Normalize(self.mean, self.std)
+        self.from_255 = from_255
+        self.to_1 = to_1
 
     def __call__(self, img):
         """Call function to normalize images.
@@ -813,8 +815,14 @@ class PostNormalize(Normalize):
         if len(img.shape) == 3:
             return self.normalize(img)
         elif len(img.shape) == 4:
+            if not self.from_255:
+                img = img * 255.0
+
             for i in range(len(img)):
                 img[i] = self.normalize(img[i])
+
+            if self.to_1:
+                img = img / 255.0
             return img
         else:
             raise ValueError('img should be with shape (bs, c, h, w)')
