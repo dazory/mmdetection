@@ -16,6 +16,7 @@ from .transforms import (Albu, CopyPaste, CutOut, Expand, MinIoURandomCrop,
                          RandomFlip, RandomShift, Resize, SegRescale,
                          YOLOXHSVRandomAug)
 from .multi_view_augmentation import MultiViewAugmentation
+from .oamix import OAMix
 
 __all__ = [
     'Compose', 'to_tensor', 'ToTensor', 'ImageToTensor', 'ToDataContainer',
@@ -29,5 +30,5 @@ __all__ = [
     'EqualizeTransform', 'BrightnessTransform', 'ContrastTransform',
     'Translate', 'RandomShift', 'Mosaic', 'MixUp', 'RandomAffine',
     'YOLOXHSVRandomAug', 'CopyPaste',
-    'MultiViewAugmentation',
+    'MultiViewAugmentation', 'OAMix'
 ]
