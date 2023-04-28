@@ -25,6 +25,7 @@ if platform.system() != 'Windows':
     soft_limit = min(max(4096, base_soft_limit), hard_limit)
     resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, hard_limit))
 
+TRANSFORMATIONS = Registry('transformation')
 DATASETS = Registry('dataset')
 PIPELINES = Registry('pipeline')
 
