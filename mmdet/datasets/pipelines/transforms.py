@@ -713,7 +713,7 @@ class PostPad(Pad):
 
         return img
 
-    def _pad_img(self, img):
+    def _pad_img(self, img, **kwargs):
         """Pad images according to ``self.size``."""
         pad_val = self.pad_val.get('img', 0)
         img_list = []
@@ -742,7 +742,7 @@ class PostPad(Pad):
 
         return img
 
-    def __call__(self, img):
+    def __call__(self, data):
         """Call function to pad images.
 
         Args:
@@ -751,7 +751,8 @@ class PostPad(Pad):
         Returns:
             img: padded img
         """
-        return self._pad_img(img)
+        data['img'] = self._pad_img(data['img'])
+        return data
 
 
 @PIPELINES.register_module()
@@ -803,7 +804,7 @@ class PostNormalize(Normalize):
         self.from_255 = from_255
         self.to_1 = to_1
 
-    def __call__(self, img):
+    def __call__(self, data):
         """Call function to normalize images.
 
         Args:
@@ -812,8 +813,9 @@ class PostNormalize(Normalize):
         Returns:
             img (torch.Tensor): Normalized img.
         """
+        img = data['img']
         if len(img.shape) == 3:
-            return self.normalize(img)
+            data['img'] = self.normalize(img)
         elif len(img.shape) == 4:
             if not self.from_255:
                 img = img * 255.0
@@ -823,9 +825,11 @@ class PostNormalize(Normalize):
 
             if self.to_1:
                 img = img / 255.0
-            return img
+            data['img'] = img
         else:
             raise ValueError('img should be with shape (bs, c, h, w)')
+
+        return data
 
 
 @PIPELINES.register_module()
