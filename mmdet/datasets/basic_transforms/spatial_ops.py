@@ -89,7 +89,7 @@ class Shear:
             level = -level
         return level
 
-    def _get_shearing_degrees(self, batch_size,device='cuda'):
+    def _get_shearing_degrees(self, batch_size, device='cuda'):
         return torch.tensor([
             self._get_shearing_degree() for _ in range(batch_size)],
             device=device)
