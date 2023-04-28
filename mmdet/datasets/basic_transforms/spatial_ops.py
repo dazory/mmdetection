@@ -39,7 +39,7 @@ class Rotate:
             [self._get_angle() for _ in range(batch_size)],
             device=device, dtype=dtype)
 
-    def __call__(self, img, center=None, **kwargs):
+    def __call__(self, img, center=None, *args, **kwargs):
         if len(img.shape) == 3:
             img = img.unsqueeze(0)
         assert len(img.shape) == 4, f"img shape should be (bs, c, h, w), but got {img.shape}"
@@ -94,7 +94,7 @@ class Shear:
             self._get_shearing_degree() for _ in range(batch_size)],
             device=device)
 
-    def __call__(self, img, center=None, **kwargs):
+    def __call__(self, img, center=None, *args, **kwargs):
         if len(img.shape) == 3:
             img = img.unsqueeze(0)
         assert len(img.shape) == 4, f"img shape should be (bs, c, h, w), but got {img.shape}"
@@ -160,7 +160,7 @@ class Translate:
         return level
 
     def _get_translations(self, batch_size, max_img_pixel,
-                                 fillzero=False, device='cuda'):
+                          fillzero=False, device='cuda'):
         if fillzero:
             return torch.zeros(batch_size, device=device)
         else:
@@ -168,7 +168,7 @@ class Translate:
                 [self._get_translation(max_img_pixel)
                  for _ in range(batch_size)], device=device)
 
-    def __call__(self, img, center=None, **kwargs):
+    def __call__(self, img, center=None, *args, **kwargs):
         if len(img.shape) == 3:
             img = img.unsqueeze(0)
         assert len(img.shape) == 4, f"img shape should be (bs, c, h, w), but got {img.shape}"

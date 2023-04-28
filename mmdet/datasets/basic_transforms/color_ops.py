@@ -13,7 +13,7 @@ class AutoContrast:
     def __init__(self, p=1.0):
         self.func = K.RandomAutoContrast(p=p, same_on_batch=True)
 
-    def __call__(self, img, **kwargs):
+    def __call__(self, img, *args, **kwargs):
         return self.func(img)
 
     def __repr__(self):
@@ -25,7 +25,7 @@ class Equalize:
     def __init__(self, p=1.0):
         self.func = K.RandomEqualize(p=p, same_on_batch=True)
 
-    def __call__(self, img, **kwargs):
+    def __call__(self, img, *args, **kwargs):
         return self.func(img)
 
     def __repr__(self):
@@ -39,7 +39,7 @@ class Posterize:
         bits = int(sample_level(level) * max_val / 10)
         self.func = K.RandomPosterize(p=p, bits=max_val - bits, same_on_batch=True)
 
-    def __call__(self, img, **kwargs):
+    def __call__(self, img, *args, **kwargs):
         return self.func(img)
 
     def __repr__(self):
@@ -55,7 +55,7 @@ class Solarize:
                                      thresholds=max_val - level,
                                      same_on_batch=True)
 
-    def __call__(self, img, **kwargs):
+    def __call__(self, img, *args, **kwargs):
         return self.func(img)
 
     def __repr__(self):
