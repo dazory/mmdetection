@@ -6,12 +6,23 @@ from mmcv.utils import build_from_cfg
 from ..basic_transforms.color_ops import *
 from ..builder import PIPELINES, TRANSFORMATIONS
 
+DEFAULT_PROB = 1.0
+DEFAULT_LEVEL = 3
+RANDOMNESS = True
 
 ALL_COLOR_AUGS = [
-    dict(type='AutoContrast', p=1.0),
-    dict(type='Equalize', p=1.0),
-    dict(type='Posterize', level=4, p=1.0),
-    dict(type='Solarize', level=4, p=1.0),
+    dict(type='AutoContrast', p=DEFAULT_PROB),
+    dict(type='Equalize', p=DEFAULT_PROB),
+    dict(type='Posterize', level=DEFAULT_LEVEL, p=DEFAULT_PROB),
+    dict(type='Solarize', level=DEFAULT_LEVEL, p=DEFAULT_PROB),
+]
+
+ALL_SPATIAL_AUGS = [
+    dict(type='Rotate', level=DEFAULT_LEVEL, padding_mode='zeros', randomness=RANDOMNESS),
+    dict(type='ShearX', level=DEFAULT_LEVEL, padding_mode='zeros', randomness=RANDOMNESS),
+    dict(type='ShearY', level=DEFAULT_LEVEL, padding_mode='zeros', randomness=RANDOMNESS),
+    dict(type='TranslateX', level=DEFAULT_LEVEL, padding_mode='zeros', randomness=RANDOMNESS),
+    dict(type='TranslateY', level=DEFAULT_LEVEL, padding_mode='zeros', randomness=RANDOMNESS),
 ]
 
 
@@ -60,6 +71,7 @@ class OAMix:
 
         mixed_imgs = torch.zeros_like(imgs)
         for i in range(self.mixture_width):
+            aug_imgs = copy.deepcopy(imgs)
             depth = self.mixture_depth if self.mixture_depth > 0 \
                 else np.random.randint(1, 4)
 
@@ -77,10 +89,10 @@ class OAMix:
 
             # only apply aug to imgs where aug_mask[i] == 1
             for j, aug in enumerate(aug_list):
-                imgs[aug_mask[j] == 1] = aug(copy.deepcopy(imgs))[aug_mask[j] == 1]
+                aug_imgs[aug_mask[j] == 1] = aug(aug_imgs)[aug_mask[j] == 1]
 
             # Mix imgs
-            mixed_imgs += mixing_weights[:, i] * imgs  # (bs, ) * (bs, c, h, w)
+            mixed_imgs += mixing_weights[:, i] * aug_imgs  # (bs, ) * (bs, c, h, w)
 
         augmixed_imgs = (1 - sample_weights) * imgs + sample_weights * mixed_imgs
         return augmixed_imgs
@@ -91,6 +103,8 @@ class OAMix:
     def _get_augs(self, version):
         if version == '0.0':
             aug_cfg_list = ALL_COLOR_AUGS + []
+        elif version == '0.1':
+            aug_cfg_list = ALL_SPATIAL_AUGS + []
         else:
             raise NotImplementedError(f'Not support OA-Mix version {version}')
 
