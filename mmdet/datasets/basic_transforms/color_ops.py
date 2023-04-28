@@ -48,10 +48,10 @@ class Posterize:
 
 @TRANSFORMATIONS.register_module()
 class Solarize:
-    def __init__(self, level):
+    def __init__(self, level, p=1.0):
         max_val = 256
         level = int(sample_level(level) * max_val / 10)
-        self.func = K.RandomSolarize(p=1.0,
+        self.func = K.RandomSolarize(p=p,
                                      thresholds=max_val - level,
                                      same_on_batch=True)
 
