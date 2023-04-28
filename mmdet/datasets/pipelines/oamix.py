@@ -25,6 +25,14 @@ ALL_SPATIAL_AUGS = [
     dict(type='TranslateY', level=DEFAULT_LEVEL, padding_mode='zeros', randomness=RANDOMNESS),
 ]
 
+ALL_BBOX_SPATIAL_AUGS = [
+    dict(type='BboxRotate', level=DEFAULT_LEVEL, randomness=RANDOMNESS),
+    dict(type='BboxShearX', level=DEFAULT_LEVEL, randomness=RANDOMNESS),
+    dict(type='BboxShearY', level=DEFAULT_LEVEL, randomness=RANDOMNESS),
+    dict(type='BboxTranslateX', level=DEFAULT_LEVEL, randomness=RANDOMNESS),
+    dict(type='BboxTranslateY', level=DEFAULT_LEVEL, randomness=RANDOMNESS),
+]
+
 
 @PIPELINES.register_module()
 class OAMix:
@@ -51,11 +59,13 @@ class OAMix:
         self.mixing_weights = torch.distributions.dirichlet.Dirichlet(torch.tensor([self.aug_prob_coeff] * self.mixture_width))
         self.sample_weights = torch.distributions.beta.Beta(torch.tensor([self.aug_prob_coeff]), torch.tensor([self.aug_prob_coeff]))
 
-    def __call__(self, imgs):
+    def __call__(self, data):
         """
         Args:
             imgs (torch.Tensor): Image tensors with shape (bs, c, h, w).
         """
+        imgs = data['img']
+        gt_bboxes = data['gt_bboxes']
         if len(imgs.shape) == 3:
             imgs = imgs.unsqueeze(0)
         assert len(imgs.shape) == 4, f"imgs shape should be (b, c, h, w), but got {imgs.shape}"
@@ -89,7 +99,8 @@ class OAMix:
 
             # only apply aug to imgs where aug_mask[i] == 1
             for j, aug in enumerate(aug_list):
-                aug_imgs[aug_mask[j] == 1] = aug(aug_imgs)[aug_mask[j] == 1]
+                aug_imgs[aug_mask[j] == 1] = \
+                    aug(aug_imgs, gt_bboxes)[aug_mask[j] == 1]
 
             # Mix imgs
             mixed_imgs += mixing_weights[:, i] * aug_imgs  # (bs, ) * (bs, c, h, w)
@@ -105,6 +116,8 @@ class OAMix:
             aug_cfg_list = ALL_COLOR_AUGS + []
         elif version == '0.1':
             aug_cfg_list = ALL_SPATIAL_AUGS + []
+        elif version == '0.2':
+            aug_cfg_list = ALL_BBOX_SPATIAL_AUGS + []
         else:
             raise NotImplementedError(f'Not support OA-Mix version {version}')
 
