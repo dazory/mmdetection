@@ -13,8 +13,8 @@ RANDOMNESS = True
 ALL_COLOR_AUGS = [
     dict(type='AutoContrast', p=DEFAULT_PROB),
     dict(type='Equalize', p=DEFAULT_PROB),
-    dict(type='Posterize', level=DEFAULT_LEVEL, p=DEFAULT_PROB),
-    dict(type='Solarize', level=DEFAULT_LEVEL, p=DEFAULT_PROB),
+    dict(type='Posterize', level=DEFAULT_LEVEL, p=DEFAULT_PROB, randomness=RANDOMNESS),
+    dict(type='Solarize', level=DEFAULT_LEVEL, p=DEFAULT_PROB, randomness=RANDOMNESS),
 ]
 
 ALL_SPATIAL_AUGS = [
@@ -100,13 +100,14 @@ class OAMix:
             # only apply aug to imgs where aug_mask[i] == 1
             for j, aug in enumerate(aug_list):
                 aug_imgs[aug_mask[j] == 1] = \
-                    aug(aug_imgs, gt_bboxes)[aug_mask[j] == 1]
+                    aug(aug_imgs, bboxes=gt_bboxes)[aug_mask[j] == 1]
 
             # Mix imgs
             mixed_imgs += mixing_weights[:, i] * aug_imgs  # (bs, ) * (bs, c, h, w)
 
-        augmixed_imgs = (1 - sample_weights) * imgs + sample_weights * mixed_imgs
-        return augmixed_imgs
+        augmented_img = (1 - sample_weights) * imgs + sample_weights * mixed_imgs
+        data['img'] = augmented_img
+        return data
 
     def __repr__(self):
         return f'{self.__class__.__name__}(policies={self.policies})'
@@ -118,6 +119,8 @@ class OAMix:
             aug_cfg_list = ALL_SPATIAL_AUGS + []
         elif version == '0.2':
             aug_cfg_list = ALL_BBOX_SPATIAL_AUGS + []
+        elif version == '0.3':
+            aug_cfg_list = ALL_COLOR_AUGS + ALL_SPATIAL_AUGS + ALL_BBOX_SPATIAL_AUGS
         else:
             raise NotImplementedError(f'Not support OA-Mix version {version}')
 
