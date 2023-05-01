@@ -30,7 +30,7 @@ class Rotate:
         max_val = 30
         degrees = int(sample_level(self.level) * max_val / 10) \
             if self.randomness else int(self.level * max_val / 10)
-        if np.random.uniform() > 0.5:
+        if (np.random.uniform() > 0.5) and self.randomness:
             degrees = -degrees
         return degrees
 
