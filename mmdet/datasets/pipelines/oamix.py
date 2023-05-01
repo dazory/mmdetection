@@ -8,6 +8,7 @@ from ..builder import PIPELINES, TRANSFORMATIONS
 
 DEFAULT_PROB = 1.0
 DEFAULT_LEVEL = 3
+DEFUALT_BLUR = dict(Kx=101, Ky=101, r=1/2)
 RANDOMNESS = True
 
 ALL_COLOR_AUGS = [
@@ -31,6 +32,14 @@ ALL_BBOX_SPATIAL_AUGS = [
     dict(type='BboxShearY', level=DEFAULT_LEVEL, randomness=RANDOMNESS),
     dict(type='BboxTranslateX', level=DEFAULT_LEVEL, randomness=RANDOMNESS),
     dict(type='BboxTranslateY', level=DEFAULT_LEVEL, randomness=RANDOMNESS),
+]
+
+ALL_BBOX_SPATIAL_AUGS_WITH_BLUR = [
+    dict(type='BboxRotate', level=DEFAULT_LEVEL, randomness=not RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='BboxShearX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='BboxShearY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='BboxTranslateX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='BboxTranslateY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
 ]
 
 
@@ -121,6 +130,8 @@ class OAMix:
             aug_cfg_list = ALL_BBOX_SPATIAL_AUGS + []
         elif version == '0.3':
             aug_cfg_list = ALL_COLOR_AUGS + ALL_SPATIAL_AUGS + ALL_BBOX_SPATIAL_AUGS
+        elif version == '0.4':
+            aug_cfg_list = ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + []
         else:
             raise NotImplementedError(f'Not support OA-Mix version {version}')
 
