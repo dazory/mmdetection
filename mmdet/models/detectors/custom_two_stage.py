@@ -80,8 +80,12 @@ class CustomTwoStageDetector(TwoStageDetector):
         ''' post-transforms'''
         imgs = []
         for i in range(self.num_views):
-            imgs.append(self.pipelines[i](copy.deepcopy(img)))
-        imgs = torch.cat(imgs, dim=0)
+            data = self.pipelines[i]({
+                'img': copy.deepcopy(img),
+                'gt_bboxes': gt_bboxes,
+            })
+            imgs.append(data['img'])
+        imgs = torch.cat(imgs, dim=0); del data;
 
         ''' The first view is forwarded '''
         x = self.extract_feat(img)
@@ -120,9 +124,9 @@ class CustomTwoStageDetector(TwoStageDetector):
         gt_masks_rest = sum(gt_masks, []) if gt_masks is not None else gt_masks
         img_metas_rest = sum([img_metas] * (self.num_views - 1), [])
         _ = self.roi_head.forward_train(x_rest, img_metas_rest, proposal_list,
-                                                 gt_bboxes_rest, gt_labels_rest,
-                                                 gt_bboxes_ignore_rest, gt_masks_rest,
-                                                 **kwargs)
+                                        gt_bboxes_rest, gt_labels_rest,
+                                        gt_bboxes_ignore_rest, gt_masks_rest,
+                                        **kwargs)
 
         if self.additional_loss is not None:
             additional_loss = self.additional_loss(self.hook_data)
