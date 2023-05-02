@@ -26,19 +26,20 @@ class JSDLoss(nn.Module):
             torch.Tensor: The calculated loss.
         """
         assert isinstance(data, dict), 'The data must be a dict.'
-        data = data.get(self.target, None)
-        assert data is not None, f'{self.target} is not in the data dict'
+        data = data[self.target]
         if not isinstance(data, list): data = [data]
         for d in data:
             assert len(d.shape) == 2, 'The shape of data must be (bs, dim).'
+        avg_factor = data[0].shape[0]
+
         probs = [F.softmax(d, dim=1) for d in data]
         probs = [prob.reshape((1,) + prob.shape).contiguous() for prob in probs]
-        prob_mixture = torch.clamp(torch.cat(probs, dim=0).mean(dim=0), 1e-7, 1).reshape(probs[0].shape).contiguous().log()
+        prob_mixture = torch.clamp(torch.cat(probs, dim=0).mean(dim=0), 1e-7, 1).reshape(probs[0].shape).log()
 
         loss = 0.0
         for prob in probs:
             loss += F.kl_div(prob_mixture, prob, reduction=self.reduction)
-        loss /= len(probs)
+        loss /= (len(probs) * avg_factor)
 
         loss = self.loss_weight * loss
 
