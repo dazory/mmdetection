@@ -1,7 +1,7 @@
 _base_ = [
-    '../_base_/models/faster_rcnn_r50_fpn.py',
-    '../_base_/datasets/cityscapes_detection.py',
-    '../_base_/default_runtime.py'
+    '/ws/external/configs/_base_/models/faster_rcnn_r50_fpn.py',
+    '/ws/external/configs/_base_/datasets/cityscapes_detection.py',
+    '/ws/external/configs/_base_/default_runtime.py'
 ]
 
 num_views = 2
@@ -38,7 +38,7 @@ model = dict(
         default_pipeline,
         aug_pipeline + default_pipeline,
     ],
-    hook_name_layer=dict(before_branch='roi_head.bbox_head.shared_fcs.1'),
+    hook_name_layer=dict(),
     additional_loss=dict(type='MultiViewLoss',
                          criterion=dict(type='JSDLoss', target='before_branch', reduction='batchmean', name='loss_additional'),
                          ),
