@@ -4,7 +4,7 @@ import kornia.filters as F
 import kornia.geometry.transform as T
 
 from ..builder import TRANSFORMATIONS
-from .spatial_ops import (Rotate, Shear, Translate)
+from .bbox_spatial_ops import (BboxRotate, BboxShear, BboxTranslate)
 
 
 def sample_level(n):
@@ -12,17 +12,9 @@ def sample_level(n):
 
 
 @TRANSFORMATIONS.register_module()
-class NotBboxRotate(Rotate):
-    def __init__(self, blur=None, *args, **kwargs):
+class NotBboxRotate(BboxRotate):
+    def __init__(self, *args, **kwargs):
         super(NotBboxRotate, self).__init__(*args, **kwargs)
-        if blur is not None:
-            assert isinstance(blur, dict), \
-                f"blur should be a dict, but got {type(blur)} with value {blur}"
-            self.blur = True
-            self.Kx, self.Ky = blur['Kx'], blur['Ky']
-            self.r = blur['r']
-        else:
-            self.blur = False
 
     def __call__(self, img, bboxes=None, **kwargs):
         if len(img.shape) == 3:
@@ -30,54 +22,45 @@ class NotBboxRotate(Rotate):
         assert len(img.shape) == 4, f"img shape should be (bs, c, h, w), but got {img.shape}"
         assert bboxes is not None, "bboxes should be provided"
 
+        batch_size = img.shape[0]
+        masks = torch.zeros((batch_size, 1, img.shape[-2], img.shape[-1]),
+                            device=img.get_device(), dtype=img.dtype)
         for i, bbox in enumerate(bboxes):
             num_objs = bbox.shape[0]
 
-            masks = torch.zeros(
-                (num_objs, 1, img.shape[-2], img.shape[-1]),
-                device=img.get_device(), dtype=img.dtype)
-            gaussian_kernels = torch.zeros(
-                (num_objs, self.Kx, self.Ky), device=img.get_device(), dtype=img.dtype) \
+            mask = torch.zeros((num_objs, 1, img.shape[-2], img.shape[-1]),
+                               device=img.get_device(), dtype=img.dtype)
+            gaussian_kernel = torch.zeros((num_objs, self.Kx, self.Ky),
+                                          device=img.get_device(), dtype=img.dtype) \
                 if self.blur else None
             for j in range(num_objs):
                 x1, y1, x2, y2 = bbox[j].type(torch.int32)
-                masks[j, :, y1:y2, x1:x2] = 1
+                mask[j, :, y1:y2, x1:x2] = 1
                 if self.blur:
-                    # sigma_x, sigma_y = min((x2 - x1) * self.r / 3.0, (self.Kx - 1) / 6.0), \
-                    #                    min((y2 - y1) * self.r / 3.0, (self.Ky - 1) / 6.0)
                     sigma_x, sigma_y = (x2 - x1) * self.r / 3.0, (y2 - y1) * self.r / 3.0
-                    print(f"sigma (x, y) = ({sigma_x:.3f}, {sigma_y:.3f})")
-                    gaussian_kernels[j] = F.get_gaussian_kernel2d((self.Kx, self.Ky), (sigma_x, sigma_y))[0]
+                    gaussian_kernel[j] = F.get_gaussian_kernel2d((self.Kx, self.Ky), (sigma_x, sigma_y))[0]
             if self.blur:
-                masks = F.filter2d(masks, gaussian_kernels)
+                mask = F.filter2d(mask, gaussian_kernel)
 
-            masks = torch.max(masks, dim=0).values
+            masks[i] = torch.max(mask, dim=0).values
 
-            # Rotate the mask and image
-            angle = torch.tensor(self._get_angle(), device=img.get_device(), dtype=img.dtype)
-            rotated_masks = T.rotate(masks, angle, center=None, mode=self.interpolation)
-            rotated_img = T.rotate(img[i].unsqueeze(0), angle, center=None, mode=self.interpolation)
+        # Rotate the mask and image
+        angles = self._get_angles(batch_size, device=img.get_device(), dtype=img.dtype)
+        rotated_masks = T.rotate(masks, angles, center=None, mode=self.interpolation)
+        rotated_imgs = T.rotate(img, angles, center=None, mode=self.interpolation)
 
-            # Composite the original image and the rotated image
-            sum_masks = torch.stack((masks, rotated_masks), dim=0)
-            sum_masks = torch.max(sum_masks, dim=0).values
-            img[i] = sum_masks * img[i] + (1-sum_masks) * rotated_img[0]
+        # Composite the original image and the rotated image
+        sum_masks = torch.stack((masks, rotated_masks), dim=0)
+        sum_masks = torch.max(sum_masks, dim=0).values
+        img = sum_masks * img + (1-sum_masks) * rotated_imgs
 
         return img
 
 
 @TRANSFORMATIONS.register_module()
-class NotBboxShear(Shear):
-    def __init__(self, blur=None, *args, **kwargs):
+class NotBboxShear(BboxShear):
+    def __init__(self, *args, **kwargs):
         super(NotBboxShear, self).__init__(*args, **kwargs)
-        if blur is not None:
-            assert isinstance(blur, dict), \
-                f"blur should be a dict, but got {type(blur)} with value {blur}"
-            self.blur = True
-            self.Kx, self.Ky = blur['Kx'], blur['Ky']
-            self.r = blur['r']
-        else:
-            self.blur = False
 
     def __call__(self, img, bboxes=None, **kwargs):
         if len(img.shape) == 3:
@@ -85,13 +68,16 @@ class NotBboxShear(Shear):
         assert len(img.shape) == 4, f"img shape should be (bs, c, h, w), but got {img.shape}"
         assert bboxes is not None, "bboxes should be provided"
 
+        batch_size = img.shape[0]
+        masks = torch.zeros((batch_size, 1, img.shape[-2], img.shape[-1]),
+                            device=img.get_device(), dtype=img.dtype)
         for i, bbox in enumerate(bboxes):
             num_objs = bbox.shape[0]
 
             mask = torch.zeros(
                 (num_objs, 1, img.shape[-2], img.shape[-1]),
                 device=img.get_device(), dtype=img.dtype)
-            gaussian_kernels = torch.zeros(
+            gaussian_kernel = torch.zeros(
                 (num_objs, self.Kx, self.Ky), device=img.get_device(), dtype=img.dtype) \
                 if self.blur else None
             for j in range(num_objs):
@@ -99,24 +85,25 @@ class NotBboxShear(Shear):
                 mask[j, :, y1:y2, x1:x2] = 1
                 if self.blur:
                     sigma_x, sigma_y = (x2 - x1) * self.r / 3.0, (y2 - y1) * self.r / 3.0
-                    gaussian_kernels[j] = F.get_gaussian_kernel2d((self.Kx, self.Ky), (sigma_x, sigma_y))[0]
+                    gaussian_kernel[j] = F.get_gaussian_kernel2d((self.Kx, self.Ky), (sigma_x, sigma_y))[0]
             if self.blur:
-                mask = F.filter2d(mask, gaussian_kernels)
+                mask = F.filter2d(mask, gaussian_kernel)
 
-            mask = torch.max(mask, dim=0).values
+            masks[i] = torch.max(mask, dim=0).values
 
-            # Shear the mask and image
-            x_degree = torch.tensor(self._get_shearing_degree(), device=img.get_device()).unsqueeze(0)
-            y_degree = torch.tensor(self._get_shearing_degree(), device=img.get_device()).unsqueeze(0)
-            center = torch.tensor(((img.shape[-1] - 1) / 2., (img.shape[-2] - 1) / 2.), device=img.get_device()).unsqueeze(0)
-            shear_matrix = T.get_shear_matrix2d(center, x_degree, y_degree)[:, :2, :]
-            sheared_mask = T.warp_affine(mask.unsqueeze(0), shear_matrix, dsize=img.shape[-2:], mode=self.interpolation)
-            sheared_img = T.warp_affine(img[i].unsqueeze(0), shear_matrix, dsize=img.shape[-2:], mode=self.interpolation)
+        # Shear the mask and image
+        x_degrees = self._get_shearing_degrees(batch_size, device=img.get_device())
+        y_degrees = self._get_shearing_degrees(batch_size, device=img.get_device())
+        centers = torch.tensor(((img.shape[-1] - 1) / 2., (img.shape[-2] - 1) / 2.),
+                               device=img.get_device()).repeat(batch_size, 1)
+        shear_matrices = T.get_shear_matrix2d(centers, x_degrees, y_degrees)[:, :2, :]
+        sheared_masks = T.warp_affine(masks, shear_matrices, dsize=img.shape[-2:], mode=self.interpolation)
+        sheared_imgs = T.warp_affine(img, shear_matrices, dsize=img.shape[-2:], mode=self.interpolation)
 
-            # Composite the original image and the rotated image
-            sum_mask = torch.stack((mask, sheared_mask[0]), dim=0)
-            sum_mask = torch.max(sum_mask, dim=0).values
-            img[i] = sum_mask * img[i] + (1 - sum_mask) * sheared_img[0]
+        # Composite the original image and the rotated image
+        sum_masks = torch.stack((masks, sheared_masks), dim=0)
+        sum_masks = torch.max(sum_masks, dim=0).values
+        img = sum_masks * img + (1 - sum_masks) * sheared_imgs
 
         return img
 
@@ -134,17 +121,9 @@ class NotBboxShearY(NotBboxShear):
 
 
 @TRANSFORMATIONS.register_module()
-class NotBboxTranslate(Translate):
-    def __init__(self, blur=None, *args, **kwargs):
+class NotBboxTranslate(BboxTranslate):
+    def __init__(self, *args, **kwargs):
         super(NotBboxTranslate, self).__init__(*args, **kwargs)
-        if blur is not None:
-            assert isinstance(blur, dict), \
-                f"blur should be a dict, but got {type(blur)} with value {blur}"
-            self.blur = True
-            self.Kx, self.Ky = blur['Kx'], blur['Ky']
-            self.r = blur['r']
-        else:
-            self.blur = False
 
     def __call__(self, img, bboxes=None, **kwargs):
         if len(img.shape) == 3:
@@ -152,39 +131,42 @@ class NotBboxTranslate(Translate):
         assert len(img.shape) == 4, f"img shape should be (bs, c, h, w), but got {img.shape}"
         assert bboxes is not None, "bboxes should be provided"
 
+        batch_size = img.shape[0]
+        masks = torch.zeros((batch_size, 1, img.shape[-2], img.shape[-1]),
+                            device=img.get_device(), dtype=img.dtype)
         for i, bbox in enumerate(bboxes):
             num_objs = bbox.shape[0]
 
-            masks = torch.zeros((num_objs, 1, img.shape[-2], img.shape[-1]),
-                                device=img.get_device(), dtype=img.dtype)
-            gaussian_kernels = torch.zeros(
+            mask = torch.zeros((num_objs, 1, img.shape[-2], img.shape[-1]),
+                               device=img.get_device(), dtype=img.dtype)
+            gaussian_kernel = torch.zeros(
                 (num_objs, self.Kx, self.Ky), device=img.get_device(), dtype=img.dtype) \
                 if self.blur else None
 
             for j in range(num_objs):
                 x1, y1, x2, y2 = bbox[j].type(torch.int32)
-                masks[j, :, y1:y2, x1:x2] = 1
+                mask[j, :, y1:y2, x1:x2] = 1
 
                 if self.blur:
                     sigma_x, sigma_y = (x2 - x1) * self.r / 3.0, (y2 - y1) * self.r / 3.0
-                    gaussian_kernels[j] = F.get_gaussian_kernel2d((self.Kx, self.Ky), (sigma_x, sigma_y))[0]
+                    gaussian_kernel[j] = F.get_gaussian_kernel2d((self.Kx, self.Ky), (sigma_x, sigma_y))[0]
 
             if self.blur:
-                masks = F.filter2d(masks, gaussian_kernels)
+                mask = F.filter2d(mask, gaussian_kernel)
 
-            masks = torch.max(masks, dim=0).values
+            masks[i] = torch.max(mask, dim=0).values
 
-            # Translate the mask and image
-            translation_x = torch.tensor(self._get_translation(img.shape[-1]), device=img.get_device())
-            translation_y = torch.tensor(self._get_translation(img.shape[-2]), device=img.get_device())
-            translation = torch.stack([translation_x, translation_y], dim=-1).type(torch.float32).unsqueeze(0)
-            translated_masks = T.translate(masks.unsqueeze(0), translation=translation, mode=self.interpolation)
-            translated_img = T.translate(img[i].unsqueeze(0), translation=translation, mode=self.interpolation)
+        # Translate the mask and image
+        translations_x = self._get_translations(batch_size, img.shape[-1], device=img.get_device())
+        translations_y = self._get_translations(batch_size, img.shape[-2], device=img.get_device())
+        translations = torch.stack([translations_x, translations_y], dim=-1).type(torch.float32)
+        translated_masks = T.translate(masks, translation=translations, mode=self.interpolation)
+        translated_imgs = T.translate(img, translation=translations, mode=self.interpolation)
 
-            # Composite the original image and the translated image
-            sum_masks = torch.stack((masks, translated_masks[0]), dim=0)
-            sum_masks = torch.max(sum_masks, dim=0).values
-            img[i] = sum_masks * img[i] + (1 - sum_masks) * translated_img[0]
+        # Composite the original image and the translated image
+        sum_masks = torch.stack((masks, translated_masks), dim=0)
+        sum_masks = torch.max(sum_masks, dim=0).values
+        img = sum_masks * img + (1 - sum_masks) * translated_imgs
 
         return img
 
