@@ -42,6 +42,14 @@ ALL_BBOX_SPATIAL_AUGS_WITH_BLUR = [
     dict(type='BboxTranslateY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
 ]
 
+ALL_BG_SPATIAL_AUGS_WITH_BLUR = [
+    dict(type='NotBboxRotate', level=DEFAULT_LEVEL, randomness=not RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='NotBboxShearX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='NotBboxShearY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='NotBboxTranslateX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='NotBboxTranslateY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
+]
+
 
 @PIPELINES.register_module()
 class OAMix:
@@ -133,7 +141,7 @@ class OAMix:
         elif version == '0.4':
             aug_cfg_list = ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + []
         elif version == '1.0':
-            aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + []
+            aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
         else:
             raise NotImplementedError(f'Not support OA-Mix version {version}')
 
