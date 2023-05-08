@@ -820,6 +820,9 @@ class PostNormalize(Normalize):
             if not self.from_255:
                 img = img * 255.0
 
+            if self.to_rgb:
+                img = img[:, [2, 1, 0], :, :]
+
             for i in range(len(img)):
                 img[i] = self.normalize(img[i])
 
