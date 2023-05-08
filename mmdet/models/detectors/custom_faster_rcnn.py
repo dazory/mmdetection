@@ -1,10 +1,10 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from ..builder import DETECTORS
-from .two_stage import TwoStageDetector
+from .custom_two_stage import CustomTwoStageDetector
 
 
 @DETECTORS.register_module()
-class CustomFasterRCNN(TwoStageDetector):
+class CustomFasterRCNN(CustomTwoStageDetector):
     """Implementation of `Faster R-CNN <https://arxiv.org/abs/1506.01497>`_"""
 
     def __init__(self,
@@ -19,6 +19,7 @@ class CustomFasterRCNN(TwoStageDetector):
                  num_views=1,
                  use_clean=True,
                  pipelines=None,
+                 **kwargs
                  ):
         super(CustomFasterRCNN, self).__init__(
             backbone=backbone,
@@ -32,4 +33,5 @@ class CustomFasterRCNN(TwoStageDetector):
             num_views=num_views,
             use_clean=use_clean,
             pipelines=pipelines,
+            **kwargs
         )
