@@ -67,6 +67,7 @@ class OAMix:
     def __init__(self, version,
                  mixture_width=3,
                  mixture_depth=-1):
+        self.version = version
         self.aug_list = self._get_augs(version)
         self.num_augs = len(self.aug_list)
         self.mixture_width = mixture_width  # The number of operations to be mixed
@@ -76,19 +77,47 @@ class OAMix:
         self.mixing_weights = torch.distributions.dirichlet.Dirichlet(torch.tensor([self.aug_prob_coeff] * self.mixture_width))
         self.sample_weights = torch.distributions.beta.Beta(torch.tensor([self.aug_prob_coeff]), torch.tensor([self.aug_prob_coeff]))
 
+        self.mean_overlap = 0.0
+
+    @staticmethod
+    def _measure_overlap(gt_bboxes, proposal_list, img_shape):
+        # img_shape = (h, w)
+        batch_size = len(gt_bboxes)
+        mean_overlap = 0.0
+        bbox_mask = torch.zeros(img_shape, dtype=torch.uint8)
+        for i in range(batch_size):
+            for bbox in gt_bboxes[i]:
+                bbox_mask[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])] = 1
+
+            overlaps = 0.0
+            for proposal in proposal_list[i][:, :-1]:
+                proposal_mask = torch.zeros(img_shape, dtype=torch.uint8)
+                (x1, y1, x2, y2) = proposal
+                proposal_mask[int(y1):int(y2), int(x1):int(x2)] = 1
+
+                overlap_mask = bbox_mask & proposal_mask
+                overlap = overlap_mask.sum() / ((x2 - x1) * (y2 - y1))
+                overlaps += overlap
+
+            mean_overlap += overlaps / len(proposal_list[0])
+        mean_overlap /= batch_size
+        return mean_overlap
+
     def __call__(self, data):
         """
         Args:
             imgs (torch.Tensor): Image tensors with shape (bs, c, h, w).
         """
         imgs = data['img']
-        gt_bboxes = data['gt_bboxes']
+        gt_bboxes = data['gt_bboxes']; proposal_list = data.get('proposal_list', None);
         if len(imgs.shape) == 3:
             imgs = imgs.unsqueeze(0)
         assert len(imgs.shape) == 4, f"imgs shape should be (b, c, h, w), but got {imgs.shape}"
         imgs /= 255.0
         bs = imgs.shape[0]
         device = imgs.get_device()
+
+        self.mean_overlap = self._measure_overlap(gt_bboxes, proposal_list, img_shape=(imgs.shape[-2], imgs.shape[-1])).item()
 
         mixing_weights = torch.zeros((bs, self.mixture_width), device=device)
         sample_weights = torch.zeros((bs,), device=device)
@@ -127,7 +156,7 @@ class OAMix:
         return data
 
     def __repr__(self):
-        return f'{self.__class__.__name__}(policies={self.policies})'
+        return f'{self.__class__.__name__}(policies={self.version})'
 
     def _get_augs(self, version):
         if version == '0.0':
@@ -140,7 +169,14 @@ class OAMix:
             aug_cfg_list = ALL_COLOR_AUGS + ALL_SPATIAL_AUGS + ALL_BBOX_SPATIAL_AUGS
         elif version == '0.4':
             aug_cfg_list = ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + []
-        elif version == '1.0':
+        elif version == '1.0':  # fg
+            aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + []
+        elif version == '1.1':  # bg
+            aug_cfg_list = ALL_COLOR_AUGS + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
+        elif version == '1.2':  # fg + bg
+            aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
+        elif version == '2.0':  # proposals
+            raise NotImplementedError('Not support OA-Mix version 2.0')  # TODO: use proposals
             aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
         else:
             raise NotImplementedError(f'Not support OA-Mix version {version}')
