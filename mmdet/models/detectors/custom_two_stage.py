@@ -2,12 +2,72 @@
 import copy
 import warnings
 
+import time
 import torch
+import torch.nn.functional as F
+
+from mmcv.runner.dist_utils import master_only
 
 from ..builder import DETECTORS, build_loss
 from .two_stage import TwoStageDetector
 from ...datasets.pipelines import Compose
 
+
+class InnerTimer:
+    def __init__(self):
+        self.t = time.time()
+        self.log_buffer = dict()
+
+    @master_only
+    def set_t(self):
+        self.t = time.time()
+
+    @master_only
+    def log_t(self, name):
+        self.log_buffer.update({name: torch.tensor(time.time() - self.t)})
+        self.t = time.time()
+
+    @master_only
+    def clear(self):
+        self.log_buffer.clear()
+
+    @master_only
+    def get_log(self):
+        return self.log_buffer
+
+
+class InnerLoger:
+    def __init__(self):
+        self.log_buffer = dict()
+
+    @master_only
+    def overlap_area(self, pipelines):
+        # mean_overlap
+        for i in range(pipelines[1].transforms.__len__()):
+            if 'OAMix' in str(pipelines[1].transforms[i].__class__):
+                overlap_area = pipelines[1].transforms[i].mean_overlap
+                self.log_buffer.update({'overlap_area': torch.tensor(overlap_area)})
+                break
+
+    @master_only
+    def jsd_bbox_feats(self, bbox_feats):
+        # entropy
+        # bbox_feats = self.hook_data.get('before_bbox_head', None)
+        if bbox_feats is not None:
+            probs = [F.softmax(bbox_feat[0].flatten(1)) for bbox_feat in bbox_feats]
+            probs = [prob.reshape((1,) + prob.shape).contiguous() for prob in probs]
+            prob_mixture = torch.clamp(torch.cat(probs, dim=0).mean(dim=0), 1e-7, 1).reshape(probs[0].shape).log()
+
+            jsd = 0.0
+            for prob in probs:
+                jsd += F.kl_div(prob_mixture, prob, reduction='batchmean')
+            jsd = jsd / (len(probs) * len(probs[0])) \
+                if len(probs) * len(probs[0]) != 0 else torch.tensor(0.0).to(probs[0].device)
+            self.log_buffer.update({'jsd_bbox_feats': jsd})
+
+    @master_only
+    def get_log(self):
+        return self.log_buffer
 
 @DETECTORS.register_module()
 class CustomTwoStageDetector(TwoStageDetector):
@@ -39,6 +99,11 @@ class CustomTwoStageDetector(TwoStageDetector):
 
         # additional loss
         self.additional_loss = build_loss(additional_loss) if additional_loss is not None else None
+
+        self.inner_timer = InnerTimer()
+        self.inner_logger = InnerLoger()
+
+        self.data = None
 
     def forward_train(self,
                       img,
@@ -77,18 +142,19 @@ class CustomTwoStageDetector(TwoStageDetector):
         Returns:
             dict[str, Tensor]: a dictionary of loss components
         """
+        self.inner_timer.set_t()
+
         ''' post-transforms'''
-        imgs = []
-        for i in range(self.num_views):
-            data = self.pipelines[i]({
-                'img': copy.deepcopy(img),
-                'gt_bboxes': gt_bboxes,
-            })
-            imgs.append(data['img'])
-        imgs = torch.cat(imgs, dim=0); del data;
+        data = self.pipelines[0]({
+            'img': copy.deepcopy(img),
+            'gt_bboxes': gt_bboxes,
+        })
+        imgs = [data['img']]
+        del data
+        self.inner_timer.log_t('time_transforms_0')
 
         ''' The first view is forwarded '''
-        x = self.extract_feat(img)
+        x = self.extract_feat(imgs[0])
 
         losses = dict()
 
@@ -113,6 +179,19 @@ class CustomTwoStageDetector(TwoStageDetector):
                                                  gt_bboxes_ignore, gt_masks,
                                                  **kwargs)
         losses.update(roi_losses)
+        self.inner_timer.log_t('time_forward_0')
+
+        ''' post-transforms'''
+        for i in range(1, self.num_views):
+            data = self.pipelines[i]({
+                'img': copy.deepcopy(img),
+                'gt_bboxes': gt_bboxes,
+                'proposal_list': proposal_list,
+            })
+            imgs.append(data['img'])
+        imgs = torch.cat(imgs, dim=0)
+        del data
+        self.inner_timer.log_t('time_transforms_1')
 
         ''' The rest views are forwarded '''
         x_rest = self.extract_feat(imgs[1:])
@@ -127,13 +206,29 @@ class CustomTwoStageDetector(TwoStageDetector):
                                         gt_bboxes_rest, gt_labels_rest,
                                         gt_bboxes_ignore_rest, gt_masks_rest,
                                         **kwargs)
+        self.inner_timer.log_t('time_forward_1')
 
         if self.additional_loss is not None:
             additional_loss = self.additional_loss(self.hook_data)
             losses.update(additional_loss)
+        self.inner_timer.log_t('time_additional_loss')
+
+        ''' Log '''
+        self.inner_logger.overlap_area(self.pipelines)
+        self.inner_logger.jsd_bbox_feats(self.hook_data.get('before_bbox_head', None))
+        losses.update(self.inner_logger.get_log())
+        losses.update(self.inner_timer.get_log())
 
         self._remove_hook_data()
 
+        for value in losses.values():
+            if isinstance(value, list):
+                value = torch.mean(torch.stack(value))
+            if torch.isnan(value):
+                import pdb
+                pdb.set_trace()
+
+        self.data = losses
         return losses
 
     def _find_layer(self, model, layer_name):
@@ -158,22 +253,28 @@ class CustomTwoStageDetector(TwoStageDetector):
                         return child
         return None
 
-    def _get_hook(self, name):
-        def _hook(module, input, output):
+    def _get_hook(self, name, type='output'):
+        def _hook_input(module, input, output):
+            if self.hook_data.get(name) is None:
+                self.hook_data[name] = []
+            self.hook_data[name].append(input)
+        def _hook_output(module, input, output):
             if self.hook_data.get(name) is None:
                 self.hook_data[name] = []
             self.hook_data[name].append(output)
-        return _hook
+        if type == 'input': return _hook_input
+        elif type == 'output': return _hook_output
+        else: raise NotImplementedError('hook type is not implemented')
 
     def _register_hook(self, hook_name_layer):
         assert isinstance(hook_name_layer, dict)
 
-        for hook_name, layer_name in hook_name_layer.items():
-            layer = self._find_layer(self, layer_name)
+        for hook_name, hook_cfg in hook_name_layer.items():
+            layer = self._find_layer(self, hook_cfg['layer'])
             assert layer is not None, 'Hook layer is not found'
-            handle = layer.register_forward_hook(self._get_hook(hook_name))
+            handle = layer.register_forward_hook(self._get_hook(hook_name, type=hook_cfg['type']))
             self.handles.append(handle)
-            print(f"layer {layer_name} is hooked")
+            print(f"layer {hook_cfg['layer']} is hooked")
 
     def _remove_hook_data(self):
         self.hook_data = dict()
