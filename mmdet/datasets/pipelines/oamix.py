@@ -200,8 +200,8 @@ class OAMix:
         elif version == '1.3.3':  # rand_fg + rand_bg
             aug_cfg_list = ALL_COLOR_AUGS + ALL_RAND_BG_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_RAND_FG_BBOX_SPATIAL_AUGS_WITH_BLUR + []
         elif version == '2.0':  # proposals
-            raise NotImplementedError('Not support OA-Mix version 2.0')  # TODO: use proposals
-            aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
+            # raise NotImplementedError('Not support OA-Mix version 2.0')  # TODO: use proposals
+            aug_cfg_list = [dict(type='BboxRotate', level=DEFAULT_LEVEL, randomness=not RANDOMNESS, blur=DEFUALT_BLUR)]
         else:
             raise NotImplementedError(f'Not support OA-Mix version {version}')
 
