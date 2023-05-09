@@ -35,7 +35,7 @@ ALL_BBOX_SPATIAL_AUGS = [
 ]
 
 ALL_BBOX_SPATIAL_AUGS_WITH_BLUR = [
-    dict(type='BboxRotate', level=DEFAULT_LEVEL, randomness=not RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='BboxRotate', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
     dict(type='BboxShearX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
     dict(type='BboxShearY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
     dict(type='BboxTranslateX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
@@ -43,11 +43,29 @@ ALL_BBOX_SPATIAL_AUGS_WITH_BLUR = [
 ]
 
 ALL_BG_SPATIAL_AUGS_WITH_BLUR = [
-    dict(type='NotBboxRotate', level=DEFAULT_LEVEL, randomness=not RANDOMNESS, blur=DEFUALT_BLUR),
+    dict(type='NotBboxRotate', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
     dict(type='NotBboxShearX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
     dict(type='NotBboxShearY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
     dict(type='NotBboxTranslateX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
     dict(type='NotBboxTranslateY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR),
+]
+
+DEFAULT_RAND_BG_CFG = dict(rand_type='bg', max_num_bboxes=(3, 10), scales=(0.01, 0.2), ratios=(0.3, 1 / 0.3))
+DEFAULT_RAND_FG_CFG = dict(rand_type='fg', max_num_bboxes=(3, 10), scales=(0.001, 0.01), ratios=(0.3, 1 / 0.3))
+ALL_RAND_BG_BBOX_SPATIAL_AUGS_WITH_BLUR = [
+    dict(type='RandBboxRotate', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_BG_CFG),
+    dict(type='RandBboxShearX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_BG_CFG),
+    dict(type='RandBboxShearY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_BG_CFG),
+    dict(type='RandBboxTranslateX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_BG_CFG),
+    dict(type='RandBboxTranslateY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_BG_CFG),
+]
+
+ALL_RAND_FG_BBOX_SPATIAL_AUGS_WITH_BLUR = [
+    dict(type='RandBboxRotate', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_FG_CFG),
+    dict(type='RandBboxShearX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_FG_CFG),
+    dict(type='RandBboxShearY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_FG_CFG),
+    dict(type='RandBboxTranslateX', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_FG_CFG),
+    dict(type='RandBboxTranslateY', level=DEFAULT_LEVEL, randomness=RANDOMNESS, blur=DEFUALT_BLUR, rand_cfg=DEFAULT_RAND_FG_CFG),
 ]
 
 
@@ -175,6 +193,12 @@ class OAMix:
             aug_cfg_list = ALL_COLOR_AUGS + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
         elif version == '1.2':  # fg + bg
             aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
+        elif version == '1.3.1':  # rand_bg
+            aug_cfg_list = ALL_COLOR_AUGS + ALL_RAND_BG_BBOX_SPATIAL_AUGS_WITH_BLUR + []
+        elif version == '1.3.2':  # rand_fg
+            aug_cfg_list = ALL_COLOR_AUGS + ALL_RAND_FG_BBOX_SPATIAL_AUGS_WITH_BLUR + []
+        elif version == '1.3.3':  # rand_fg + rand_bg
+            aug_cfg_list = ALL_COLOR_AUGS + ALL_RAND_BG_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_RAND_FG_BBOX_SPATIAL_AUGS_WITH_BLUR + []
         elif version == '2.0':  # proposals
             raise NotImplementedError('Not support OA-Mix version 2.0')  # TODO: use proposals
             aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
