@@ -2,6 +2,9 @@
 import copy
 import torch
 
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
 from mmcv.utils import build_from_cfg
 from ..basic_transforms.color_ops import *
 from ..builder import PIPELINES, TRANSFORMATIONS
@@ -97,6 +100,11 @@ class OAMix:
 
         self.mean_overlap = 0.0
 
+        # visualize_proposals
+        self.vis_interval = 100
+        self.save_path = '/ws/data/dshong/mmdetection/oamix/visualize_proposals'
+        self.save_i = 0
+
     @staticmethod
     def _measure_overlap(gt_bboxes, proposal_list, img_shape):
         # img_shape = (h, w)
@@ -137,6 +145,10 @@ class OAMix:
 
         self.mean_overlap = self._measure_overlap(gt_bboxes, proposal_list, img_shape=(imgs.shape[-2], imgs.shape[-1])).item()
 
+        # visualize proposals
+        if self.save_i % self.vis_interval == 0:
+            self._visualize_proposals(imgs, proposal_list, f"{self.save_path}/{self.save_i}.png")
+
         mixing_weights = torch.zeros((bs, self.mixture_width), device=device)
         sample_weights = torch.zeros((bs,), device=device)
         for i in range(bs):
@@ -173,6 +185,20 @@ class OAMix:
         data['img'] = augmented_img
         return data
 
+    def _visualize_proposals(self, imgs, proposal_list, save_path):
+        fig, ax = plt.subplots(1, 1)
+        img_vis = imgs[0].permute(1, 2, 0).cpu().detach().numpy()
+        ax.imshow(img_vis)
+        proposals = proposal_list[0]
+        for i in range(len(proposals)):
+            bbox = proposals[i].cpu().detach().numpy()
+            x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
+            patch = Rectangle(xy=(x1, y1), width=(x2 - x1), height=(y2 - y1),
+                              linewidth=1, edgecolor='none', facecolor='#e41a1c', alpha=bbox[4].item())
+            ax.add_patch(patch)
+        plt.savefig(f'{save_path}')
+        plt.close(fig)
+
     def __repr__(self):
         return f'{self.__class__.__name__}(policies={self.version})'
 
@@ -201,7 +227,7 @@ class OAMix:
             aug_cfg_list = ALL_COLOR_AUGS + ALL_RAND_BG_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_RAND_FG_BBOX_SPATIAL_AUGS_WITH_BLUR + []
         elif version == '2.0':  # proposals
             raise NotImplementedError('Not support OA-Mix version 2.0')  # TODO: use proposals
-            aug_cfg_list = ALL_COLOR_AUGS + ALL_BBOX_SPATIAL_AUGS_WITH_BLUR + ALL_BG_SPATIAL_AUGS_WITH_BLUR + []
+            aug_cfg_list = [dict(type='BboxRotate', level=DEFAULT_LEVEL, randomness=not RANDOMNESS, blur=DEFUALT_BLUR)]
         else:
             raise NotImplementedError(f'Not support OA-Mix version {version}')
 
