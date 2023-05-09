@@ -231,6 +231,21 @@ class CustomTwoStageDetector(TwoStageDetector):
         self.data = losses
         return losses
 
+    def simple_test(self, img, img_metas, proposals=None, rescale=False):
+        """Test without augmentation."""
+
+        assert self.with_bbox, 'Bbox head must be implemented.'
+        x = self.extract_feat(img)
+        if proposals is None:
+            proposal_list = self.rpn_head.simple_test_rpn(x, img_metas)
+        else:
+            proposal_list = proposals
+
+        self._remove_hook_data()
+
+        return self.roi_head.simple_test(
+            x, proposal_list, img_metas, rescale=rescale)
+
     def _find_layer(self, model, layer_name):
         '''
         Input:
