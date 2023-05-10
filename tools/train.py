@@ -90,6 +90,7 @@ def parse_args():
         '--auto-scale-lr',
         action='store_true',
         help='enable automatically scaling LR.')
+    parser.add_argument('--debug', action='store_true', help='debug mode.')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -109,6 +110,9 @@ def main():
     args = parse_args()
 
     cfg = Config.fromfile(args.config)
+    cfg.debug = args.debug
+    if cfg.debug:
+        print(f"Debug mode!")
 
     # replace the ${key} with the value of cfg.key
     cfg = replace_cfg_vals(cfg)
@@ -217,6 +221,10 @@ def main():
 
     # init rfnext if 'RFSearchHook' is defined in cfg
     rfnext_init_model(model, cfg=cfg)
+
+    if cfg.debug:
+        cfg.data.samples_per_gpu = 1
+        cfg.data.workers_per_gpu = 0
 
     datasets = [build_dataset(cfg.data.train)]
     if len(cfg.workflow) == 2:

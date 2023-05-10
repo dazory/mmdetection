@@ -191,6 +191,10 @@ def train_detector(model,
         optimizer_config = cfg.optimizer_config
 
     # register hooks
+    if cfg.debug:
+        for i, hook in enumerate(cfg.log_config.hooks):
+            if hook.type == 'MMDetWandbHook':
+                del cfg.log_config.hooks[i]
     runner.register_training_hooks(
         cfg.lr_config,
         optimizer_config,
@@ -239,6 +243,8 @@ def train_detector(model,
     if resume_from is not None:
         cfg.resume_from = resume_from
 
+    if cfg.debug:
+        cfg.load_from = None
     if cfg.resume_from:
         runner.resume(cfg.resume_from)
     elif cfg.load_from:
