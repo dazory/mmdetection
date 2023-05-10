@@ -84,7 +84,7 @@ class RandBboxShear(BboxShear):
     def __call__(self, img, bboxes=None, **kwargs):
         random_bboxes = []
         for bbox in bboxes:
-            random_bboxes.append(self._generate_random_bboxes(
+            random_bboxes.append(_generate_random_bboxes(
                 img.shape[-2:], bbox, **self.rand_cfg))
         return super(RandBboxShear, self).__call__(img, random_bboxes, **kwargs)
 
@@ -110,7 +110,7 @@ class RandBboxTranslate(BboxTranslate):
     def __call__(self, img, bboxes=None, **kwargs):
         random_bboxes = []
         for bbox in bboxes:
-            random_bboxes.append(self._generate_random_bboxes(
+            random_bboxes.append(_generate_random_bboxes(
                 img.shape[-2:], bbox, **self.rand_cfg))
         return super(RandBboxTranslate, self).__call__(img, random_bboxes, **kwargs)
 
