@@ -142,6 +142,7 @@ class CustomTwoStageDetector(TwoStageDetector):
         Returns:
             dict[str, Tensor]: a dictionary of loss components
         """
+        self._remove_hook_data()
         self.inner_timer.set_t()
 
         ''' post-transforms'''
