@@ -17,6 +17,7 @@ from .transforms import (Albu, CopyPaste, CutOut, Expand, MinIoURandomCrop,
                          YOLOXHSVRandomAug)
 from .multi_view_augmentation import MultiViewAugmentation
 from .oamix import OAMix
+from .deep_augment import DeepAugment
 
 __all__ = [
     'Compose', 'to_tensor', 'ToTensor', 'ImageToTensor', 'ToDataContainer',
@@ -30,5 +31,5 @@ __all__ = [
     'EqualizeTransform', 'BrightnessTransform', 'ContrastTransform',
     'Translate', 'RandomShift', 'Mosaic', 'MixUp', 'RandomAffine',
     'YOLOXHSVRandomAug', 'CopyPaste',
-    'MultiViewAugmentation', 'OAMix'
+    'MultiViewAugmentation', 'OAMix', 'DeepAugment',
 ]
