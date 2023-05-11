@@ -104,6 +104,12 @@ class OAMix:
         mean_overlap = 0.0
         bbox_mask = torch.zeros(img_shape, dtype=torch.uint8)
         for i in range(batch_size):
+            if len(proposal_list[i]) == 0:
+                mean_overlap += 0.0
+                import pdb # TODO:
+                pdb.set_trace()
+                continue
+
             for bbox in gt_bboxes[i]:
                 bbox_mask[int(bbox[1]):int(bbox[3]), int(bbox[0]):int(bbox[2])] = 1
 
@@ -117,7 +123,7 @@ class OAMix:
                 overlap = overlap_mask.sum() / ((x2 - x1) * (y2 - y1))
                 overlaps += overlap
 
-            mean_overlap += overlaps / len(proposal_list[0])
+            mean_overlap += overlaps / len(proposal_list[i])
         mean_overlap /= batch_size
         return mean_overlap
 
