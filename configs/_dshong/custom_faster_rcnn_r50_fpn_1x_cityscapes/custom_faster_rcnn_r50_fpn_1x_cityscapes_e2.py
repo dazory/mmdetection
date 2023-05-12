@@ -35,8 +35,12 @@ train_pipeline = [
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
 ]
+
+data_root = '/ws/data/cityscapes/'
 data = dict(
-    train=dict(dataset=dict(pipeline=train_pipeline))
+    train=dict(dataset=dict(pipeline=train_pipeline)),
+    test=dict(ann_file=data_root + 'annotations/instancesonly_filtered_gtFine_val.json',
+              img_prefix=data_root + 'leftImg8bit/val/'),
 )
 
 lr_config = dict(step=[1])  # [1] yields higher performance than [0]

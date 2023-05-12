@@ -1,3 +1,21 @@
+'''
+How to run?
+    1. general
+        `python3 -u /ws/external/tools/analysis_tools/test_robustness.py \
+            ${CONFIG_FILE} ${CHECKPOINT_FILE} 
+            --out ${OUT_FILE}.pkl \
+            --eval bbox  \
+            | tee ${WORK_DIR}/robutsness_epoch_${EPOCH}.txt`
+    2. with given data
+        `python3 -u /ws/external/tools/analysis_tools/test_robustness.py \
+            ${CONFIG_FILE} ${CHECKPOINT_FILE} 
+            --out ${OUT_FILE}.pkl \
+            --eval bbox  \
+            --given_data \
+            --img_prefix /ws/data/cityscapes-mini/val \
+            --ann_file /ws/data/cityscapes-mini/annotations/instancesonly_filtered_gtFine_val.json \
+            | tee ${WORK_DIR}/robutsness_epoch_${EPOCH}.txt`
+'''
 # Copyright (c) OpenMMLab. All rights reserved.
 import argparse
 import copy
@@ -95,6 +113,9 @@ def parse_args():
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument('--out', help='output result file')
+    parser.add_argument('--img_prefix', type=str)
+    parser.add_argument('--ann_file', type=str)
+    parser.add_argument('--given_data', action='store_true')
     parser.add_argument(
         '--corruptions',
         type=str,
@@ -258,7 +279,15 @@ def main():
 
             test_data_cfg = copy.deepcopy(cfg.data.test)
             # assign corruption and severity
-            if corruption_severity > 0:
+            if args.img_prefix is not None:
+                if args.given_data:
+                    test_data_cfg['img_prefix'] = f"{args.img_prefix}/{corruption}/{corruption_severity}"
+                else:
+                    test_data_cfg['img_prefix'] = args.img_prefix
+            if args.ann_file is not None:
+                test_data_cfg['ann_file'] = args.ann_file
+
+            if (corruption_severity > 0) and (not args.given_data):
                 corruption_trans = dict(
                     type='Corrupt',
                     corruption=corruption,
