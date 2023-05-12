@@ -2,8 +2,15 @@ _base_ = [
     '/ws/external/configs/cityscapes/faster_rcnn_r50_fpn_1x_cityscapes.py'
 ]
 
-num_views = 2
+num_views = 1
 use_clean = True
+additional_loss_type = 'JSDLoss'
+additional_loss_weight = 0.0  # WARN
+hook_name = 'after_fc_cls'
+hook_name_layer = {
+    hook_name: dict(layer='roi_head.bbox_head.fc_cls', type='output'),
+    'before_bbox_head': dict(layer='roi_head.bbox_head', type='input'),
+}
 
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
@@ -21,9 +28,10 @@ model = dict(
         aug_pipeline + default_pipeline,
     ],
     hook_name_layer=dict(),
-    additional_loss=dict(
-        type='MultiViewLoss',
-        criterion=dict(type='JSDLoss', target='before_branch', reduction='batchmean', name='loss_additional')),
+    additional_loss=dict(type='MultiViewLoss',
+                         criterion=dict(type=additional_loss_type, target=hook_name,
+                                        reduction='batchmean', name='loss_additional',
+                                        loss_weight=additional_loss_weight)),
 )
 
 ''' Dataset '''
