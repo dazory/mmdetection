@@ -2,6 +2,11 @@ _base_ = [
     '/ws/external/configs/cityscapes/faster_rcnn_r50_fpn_1x_cityscapes.py'
 ]
 
+''' Independent var '''
+oamix_version = '0.0'
+name = f'v1.baseline'
+
+''' Control var'''
 num_views = 1
 use_clean = True
 additional_loss_type = 'JSDLoss'
@@ -53,3 +58,26 @@ data = dict(
 
 lr_config = dict(step=[1])  # [1] yields higher performance than [0]
 runner = dict(type='EpochBasedRunner', max_epochs=2)
+
+log_config = dict(
+    interval=100,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='MMDetWandbHook',
+             init_kwargs={
+                 'entity': 'kaist-url-ai28',
+                 'project': 'mmdetection',
+                 'name': name,
+                 'config': {
+                     'oamix': oamix_version,
+                     'num_views': num_views,
+                     'use_clean': use_clean,
+                     'additional_loss_type': additional_loss_type,
+                     'additional_loss_weight': additional_loss_weight,
+                 }
+             },
+             interval=50,
+             log_checkpoint=True,
+             log_checkpoint_metadata=True,
+             num_eval_images=0)
+        ])
