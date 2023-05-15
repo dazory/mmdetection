@@ -21,6 +21,7 @@ import argparse
 import copy
 import os
 import os.path as osp
+import numpy as np
 
 import mmcv
 import torch
@@ -370,7 +371,20 @@ def main():
                         if eval_types == ['proposal_fast']:
                             result_file = args.out
                         else:
-                            if not isinstance(outputs[0], dict):
+                            if len(np.concatenate(sum(outputs, []), axis=0)) == 0:
+                                print(f"No detected object")
+                                if not isinstance(outputs[0], dict):
+                                    result_files = dict()
+                                    if isinstance(outputs[0], list): # True
+                                        json_results = [[]]
+                                        result_files['bbox'] = f'{args.out}.bbox.json'
+                                        result_files['proposal'] = f'{args.out}.bbox.json'
+                                        mmcv.dump(json_results, result_files['bbox'])
+                                    else:
+                                        raise NotImplementedError
+                                else:
+                                    raise NotImplementedError
+                            elif not isinstance(outputs[0], dict):
                                 result_files = dataset.results2json(
                                     outputs, args.out)
                             else:
