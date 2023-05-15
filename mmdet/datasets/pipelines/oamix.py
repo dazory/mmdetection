@@ -173,9 +173,9 @@ class OAMix:
                     aug(aug_imgs, bboxes=gt_bboxes)[aug_mask[j] == 1]
 
             # Mix imgs
-            mixed_imgs += mixing_weights[:, i] * aug_imgs  # (bs, ) * (bs, c, h, w)
+            mixed_imgs += mixing_weights[:, i][:, None, None, None] * aug_imgs  # (bs, ) * (bs, c, h, w)
 
-        augmented_img = (1 - sample_weights) * imgs + sample_weights * mixed_imgs
+        augmented_img = (1 - sample_weights)[:, None, None, None] * imgs + sample_weights[:, None, None, None] * mixed_imgs
         data['img'] = augmented_img
         return data
 
