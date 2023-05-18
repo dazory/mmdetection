@@ -132,6 +132,14 @@ def main():
     dataset = build_dataset(cfg.data.test)
     data_loader = build_dataloader(dataset, **test_loader_cfg)
 
+    for i, t in enumerate(data_loader.dataset.pipeline.transforms):
+        if t.__class__.__name__ in ['Resize', 'RandomFlip']:
+            data_loader.dataset.pipeline.transforms.remove(t)
+        elif t.__class__.__name__ in ['Collect']:
+            meta_keys = ('filename', 'ori_filename', 'ori_shape',
+                         'img_shape', 'pad_shape', 'img_norm_cfg')
+            data_loader.dataset.pipeline.transforms[i].meta_keys = meta_keys
+
     if not distributed:
         dataset = data_loader.dataset
         prog_bar = mmcv.ProgressBar(len(dataset))
