@@ -254,6 +254,26 @@ class DefaultFormatBundle:
                 to_tensor(results['gt_semantic_seg'][None, ...]),
                 padding_value=self.pad_val['seg'],
                 stack=True)
+        if 'custom_fields' in results:
+            custom_fields = results['custom_fields']
+            # For img
+            for _img_key in [k for k in custom_fields if 'img' in k]:
+                img = results[_img_key]
+                if self.img_to_float is True and img.dtype == np.uint8:
+                    img = img.astype(np.float32)
+                if len(img.shape) < 3:
+                    img = np.expand_dims(img, -1)
+                if not img.flags.c_contiguous:
+                    img = np.ascontiguousarray(img.transpose(2, 0, 1))
+                    img = to_tensor(img)
+                else:
+                    img = to_tensor(img).permute(2, 0, 1).contiguous()
+                results[_img_key] = DC(
+                    img, padding_value=self.pad_val['img'], stack=True)
+            # For dx
+            for _dx_key in [k for k in custom_fields if 'dx' in k]:
+                results[_dx_key] = DC(to_tensor(results[_dx_key]))
+
         return results
 
     def _add_default_meta_keys(self, results):
