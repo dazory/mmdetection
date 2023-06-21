@@ -1,14 +1,9 @@
-_base_ = ['/ws/external/configs/cityscapes/faster_rcnn_r50_fpn_1x_cityscapes.py']
+_base_ = ['/ws/external/configs/faster_rcnn/faster_rcnn_r50_fpn_1x_coco.py']
 
-name = "city_faster-rcnn"
+name = "coco_faster-rcnn"
 
 WANDB_ENTITY = 'kaist-url-ai28'
 WANDB_PROJECT_NAME = 'mmdetection_oa'
-
-## Model ###
-# learning policy
-lr_config = dict(step=[1]) # [1] yields higher performance than [0]
-runner = dict(type='EpochBasedRunner', max_epochs=2)  # actual epoch = 2 * 8 = 16
 
 ### Logger ###
 log_config = dict(

@@ -1,14 +1,15 @@
-_base_ = ['/ws/external/configs/cityscapes/faster_rcnn_r50_fpn_1x_cityscapes.py']
+_base_ = ['/ws/external/configs/pascal_voc/faster_rcnn_r50_fpn_1x_voc0712.py']
 
-name = "city_faster-rcnn"
+name = "voc_faster-rcnn"
 
-WANDB_ENTITY = 'kaist-url-ai28'
-WANDB_PROJECT_NAME = 'mmdetection_oa'
+WANDB_ENTITY = "kaist-url-ai28"
+WANDB_PROJECT_NAME = "mmdetection_oa"
 
-## Model ###
+
 # learning policy
-lr_config = dict(step=[1]) # [1] yields higher performance than [0]
-runner = dict(type='EpochBasedRunner', max_epochs=2)  # actual epoch = 2 * 8 = 16
+lr_config = dict(policy='step', step=[3]) # actual epoch = 3 * 3 = 9
+# runtime settings
+runner = dict(type='EpochBasedRunner', max_epochs=4)  # actual epoch = 4 * 3 = 12
 
 ### Logger ###
 log_config = dict(

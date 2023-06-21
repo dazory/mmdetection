@@ -222,6 +222,8 @@ def main():
     if args.debug:
         cfg.data.workers_per_gpu = 0
         cfg.load_from = None
+        cfg.log_config.hooks = [hook for (i, hook) in enumerate(cfg.log_config.hooks) if not hook.type in ['WandbLogger', 'MMDetWandbHook']]
+
     datasets = [build_dataset(cfg.data.train)]
     if len(cfg.workflow) == 2:
         assert 'val' in [mode for (mode, _) in cfg.workflow]
