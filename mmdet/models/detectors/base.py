@@ -2,6 +2,9 @@
 from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
 
+import re
+from itertools import repeat
+
 import mmcv
 import numpy as np
 import torch
@@ -10,6 +13,9 @@ from mmcv.runner import BaseModule, auto_fp16
 
 from mmdet.core.visualization import imshow_det_bboxes
 
+
+match = lambda query, key, only_format=False: \
+    re.match(fr'{key}(\d)', query) if only_format else (re.match(fr'{key}(\d)', query) or query == key)
 
 class BaseDetector(BaseModule, metaclass=ABCMeta):
     """Base class for detectors."""
@@ -363,3 +369,91 @@ class BaseDetector(BaseModule, metaclass=ABCMeta):
     def onnx_export(self, img, img_metas):
         raise NotImplementedError(f'{self.__class__.__name__} does '
                                   f'not support ONNX EXPORT')
+
+class NViewsBaseDetector(BaseDetector):
+    """Base class for detectors."""
+
+    def __init__(self, init_cfg=None):
+        super(BaseDetector, self).__init__(init_cfg)
+        self.fp16_enabled = False
+
+    def _merge(self, data):
+        _img = [v for k, v in data.items() if match(k, 'img')]
+        num_views = len(_img)
+
+        _gt_bboxes = [v for k, v in data.items() if match(k, 'gt_bboxes')]
+        if len(_gt_bboxes) != num_views:
+            _gt_bboxes = list(repeat(_gt_bboxes[0], num_views))
+        _gt_labels = [v for k, v in data.items() if match(k, 'gt_labels')]
+        if len(_gt_labels) != num_views:
+            _gt_labels = list(repeat(_gt_labels[0], num_views))
+        _img_metas = [v for k, v in data.items() if match(k, 'img_metas')]
+        if len(_img_metas) != num_views:
+            _img_metas = list(repeat(_img_metas[0], num_views))
+
+        data['img'] = torch.concat(_img, dim=0)
+        data['gt_bboxes'] = [d for item in _gt_bboxes for d in item]
+        data['gt_labels'] = [d for item in _gt_labels for d in item]
+        data['img_metas'] = [d for item in _img_metas for d in item]
+
+        for k in [k for k, v in data.items() if match(k, 'img', True) or match(k, 'gt_bboxes', True) or match(k, 'gt_labels', True)]:
+            del data[k]
+
+        return data
+
+    def train_step(self, data, optimizer):
+        """The iteration step during training.
+
+        This method defines an iteration step during training, except for the
+        back propagation and optimizer updating, which are done in an optimizer
+        hook. Note that in some complicated cases or models, the whole process
+        including back propagation and optimizer updating is also defined in
+        this method, such as GAN.
+
+        Args:
+            data (dict): The output of dataloader.
+            optimizer (:obj:`torch.optim.Optimizer` | dict): The optimizer of
+                runner is passed to ``train_step()``. This argument is unused
+                and reserved.
+
+        Returns:
+            dict: It should contain at least 3 keys: ``loss``, ``log_vars``, \
+                ``num_samples``.
+
+                - ``loss`` is a tensor for back propagation, which can be a
+                  weighted sum of multiple losses.
+                - ``log_vars`` contains all the variables to be sent to the
+                  logger.
+                - ``num_samples`` indicates the batch size (when the model is
+                  DDP, it means the batch size on each GPU), which is used for
+                  averaging the logs.
+        """
+        data = self._merge(data)
+
+        losses = self(**data)
+        loss, log_vars = self._parse_losses(losses)
+
+        outputs = dict(
+            loss=loss, log_vars=log_vars, num_samples=len(data['img_metas']))
+
+        return outputs
+
+    def val_step(self, data, optimizer=None):
+        """The iteration step during validation.
+
+        This method shares the same signature as :func:`train_step`, but used
+        during val epochs. Note that the evaluation after training epochs is
+        not implemented with this method, but an evaluation hook.
+        """
+        losses = self(**data)
+        loss, log_vars = self._parse_losses(losses)
+
+        log_vars_ = dict()
+        for loss_name, loss_value in log_vars.items():
+            k = loss_name + '_val'
+            log_vars_[k] = loss_value
+
+        outputs = dict(
+            loss=loss, log_vars=log_vars_, num_samples=len(data['img_metas']))
+
+        return outputs

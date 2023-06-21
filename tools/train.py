@@ -210,6 +210,12 @@ def main():
     meta['seed'] = seed
     meta['exp_name'] = osp.basename(args.config)
 
+    if args.debug:
+        cfg.data.workers_per_gpu = 0
+        cfg.load_from = None
+        cfg.log_config.hooks = [hook for (i, hook) in enumerate(cfg.log_config.hooks) if not hook.type in ['WandbLogger', 'MMDetWandbHook']]
+        cfg.model.backbone.init_cfg = {}
+
     model = build_detector(
         cfg.model,
         train_cfg=cfg.get('train_cfg'),
@@ -218,11 +224,6 @@ def main():
 
     # init rfnext if 'RFSearchHook' is defined in cfg
     rfnext_init_model(model, cfg=cfg)
-
-    if args.debug:
-        cfg.data.workers_per_gpu = 0
-        cfg.load_from = None
-        cfg.log_config.hooks = [hook for (i, hook) in enumerate(cfg.log_config.hooks) if not hook.type in ['WandbLogger', 'MMDetWandbHook']]
 
     datasets = [build_dataset(cfg.data.train)]
     if len(cfg.workflow) == 2:

@@ -4,7 +4,7 @@ import warnings
 import torch
 
 from ..builder import DETECTORS, build_backbone, build_head, build_neck
-from .base import BaseDetector
+from .base import BaseDetector, NViewsBaseDetector
 
 
 @DETECTORS.register_module()
@@ -209,3 +209,15 @@ class TwoStageDetector(BaseDetector):
                 f'list of supported models,'
                 f'https://mmdetection.readthedocs.io/en/latest/tutorials/pytorch2onnx.html#list-of-supported-models-exportable-to-onnx'  # noqa E501
             )
+
+@DETECTORS.register_module()
+class NViewsTwoStageDetector(TwoStageDetector, NViewsBaseDetector):
+    """Base class with n views for two-stage detectors.
+
+    Two-stage detectors typically consisting of a region proposal network and a
+    task-specific regression head.
+    """
+
+    def __init__(self, init_cfg=None, *args, **kwargs):
+        NViewsBaseDetector.__init__(self, init_cfg)
+        TwoStageDetector.__init__(self, init_cfg=init_cfg, *args, **kwargs)
