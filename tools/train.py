@@ -90,6 +90,8 @@ def parse_args():
         '--auto-scale-lr',
         action='store_true',
         help='enable automatically scaling LR.')
+    parser.add_argument('--debug', action='store_true', help='debug mode')
+    parser.add_argument('--wandb', default=False, action='store_true', help='wandb mode')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -208,6 +210,13 @@ def main():
     cfg.seed = seed
     meta['seed'] = seed
     meta['exp_name'] = osp.basename(args.config)
+
+    if args.debug:
+        cfg.data.workers_per_gpu = 0
+        cfg.load_from = None
+        if not args.wandb:
+            cfg.log_config.hooks = [hook for (i, hook) in enumerate(cfg.log_config.hooks) if not hook.type in ['WandbLogger', 'MMDetWandbHook', 'CustomMMDetWandbHook']]
+        cfg.model.backbone.init_cfg = {}
 
     model = build_detector(
         cfg.model,
