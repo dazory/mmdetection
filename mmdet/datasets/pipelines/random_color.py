@@ -27,7 +27,7 @@ class RandomColor:
         assert np.max(img) <= 1 and 0 <=np.min(img), "img must be in [0, 1]"
 
         # Sample parameters
-        cut = np.random.randint(1, self.cut_max)
+        cut = np.random.randint(2, self.cut_max)
         k_min = np.random.randint(1, cut)
 
         # Augmentation
