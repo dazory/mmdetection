@@ -12,6 +12,7 @@ import torch.distributed as dist
 from mmcv.runner import BaseModule, auto_fp16
 
 from mmdet.core.visualization import imshow_det_bboxes
+from mmdet.do_something.builder import build_do_something
 
 
 match = lambda query, key, only_format=False: \
@@ -373,23 +374,28 @@ class BaseDetector(BaseModule, metaclass=ABCMeta):
 class NViewsBaseDetector(BaseDetector):
     """Base class for detectors."""
 
-    def __init__(self, init_cfg=None):
+    def __init__(self, init_cfg=None, layer_name_type_list=[], do_something=None, **kwargs):
         super(BaseDetector, self).__init__(init_cfg)
         self.fp16_enabled = False
 
+        self.layer_name_type_list = layer_name_type_list
+        self.registered = False
+
+        self.do_something = build_do_something(do_something) if do_something is not None else None
+
     def _merge(self, data):
         _img = [v for k, v in data.items() if match(k, 'img')]
-        num_views = len(_img)
+        self.num_views = len(_img)
 
         _gt_bboxes = [v for k, v in data.items() if match(k, 'gt_bboxes')]
-        if len(_gt_bboxes) != num_views:
-            _gt_bboxes = list(repeat(_gt_bboxes[0], num_views))
+        if len(_gt_bboxes) != self.num_views:
+            _gt_bboxes = list(repeat(_gt_bboxes[0], self.num_views))
         _gt_labels = [v for k, v in data.items() if match(k, 'gt_labels')]
-        if len(_gt_labels) != num_views:
-            _gt_labels = list(repeat(_gt_labels[0], num_views))
+        if len(_gt_labels) != self.num_views:
+            _gt_labels = list(repeat(_gt_labels[0], self.num_views))
         _img_metas = [v for k, v in data.items() if match(k, 'img_metas')]
-        if len(_img_metas) != num_views:
-            _img_metas = list(repeat(_img_metas[0], num_views))
+        if len(_img_metas) != self.num_views:
+            _img_metas = list(repeat(_img_metas[0], self.num_views))
 
         data['img'] = torch.concat(_img, dim=0)
         data['gt_bboxes'] = [d for item in _gt_bboxes for d in item]
@@ -428,6 +434,8 @@ class NViewsBaseDetector(BaseDetector):
                   DDP, it means the batch size on each GPU), which is used for
                   averaging the logs.
         """
+        self._register_forward_hook(self.layer_name_type_list)
+
         data = self._merge(data)
 
         losses = self(**data)
@@ -435,6 +443,10 @@ class NViewsBaseDetector(BaseDetector):
 
         outputs = dict(
             loss=loss, log_vars=log_vars, num_samples=len(data['img_metas']))
+
+        if len(self.layer_name_type_list) > 0 and self.do_something is not None:
+            outputs = self.do_something(self.hook_results, self.num_views, outputs, data=data)
+            self.hook_results = dict(input={}, module={}, output={})
 
         return outputs
 
@@ -457,3 +469,46 @@ class NViewsBaseDetector(BaseDetector):
             loss=loss, log_vars=log_vars_, num_samples=len(data['img_metas']))
 
         return outputs
+
+    def find_layer(self, model, layer_name):
+        '''
+        Input:
+                layer_name = (str)
+        Example:
+                layer_name = 'rpn.rpn_cls_layer'
+                layer = find_layer(model, layer_name)
+                print(layer)
+        '''
+        if isinstance(layer_name, str):
+            layer_name = layer_name.split('.')
+
+        if len(layer_name) != 0:
+            for name, child in model.named_children():
+                if name == layer_name[0]:
+                    if len(layer_name) == 1:
+                        return child
+                    child = self.find_layer(child, layer_name[1:])
+                    if child != False:
+                        return child
+        return False
+    def _register_forward_hook(self, layer_name_type_list):
+        if not self.registered:
+            def save_vars(layer_name, type):
+                if not hasattr(self, 'hook_results'):
+                    self.hook_results = {}
+                if type not in self.hook_results:
+                    self.hook_results[type] = {}
+                def hook_fn(m, i, o):
+                    if type == 'module': _data = m
+                    elif type == 'input': _data = i
+                    elif type == 'output': _data = o
+                    else: raise TypeError('')
+                    self.hook_results[type].update({layer_name: _data})
+
+                return hook_fn
+
+            for (layer_name, type) in layer_name_type_list:
+                layer = self.find_layer(self, layer_name)
+                layer.register_forward_hook(save_vars(layer_name, type))
+
+            self.registered = True

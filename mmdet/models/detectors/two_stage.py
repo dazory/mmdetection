@@ -23,8 +23,9 @@ class TwoStageDetector(BaseDetector):
                  train_cfg=None,
                  test_cfg=None,
                  pretrained=None,
-                 init_cfg=None):
-        super(TwoStageDetector, self).__init__(init_cfg)
+                 init_cfg=None,
+                 **kwargs):
+        super(TwoStageDetector, self).__init__(init_cfg, **kwargs)
         if pretrained:
             warnings.warn('DeprecationWarning: pretrained is deprecated, '
                           'please use "init_cfg" instead')
@@ -218,6 +219,5 @@ class NViewsTwoStageDetector(TwoStageDetector, NViewsBaseDetector):
     task-specific regression head.
     """
 
-    def __init__(self, init_cfg=None, *args, **kwargs):
-        NViewsBaseDetector.__init__(self, init_cfg)
-        TwoStageDetector.__init__(self, init_cfg=init_cfg, *args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        TwoStageDetector.__init__(self, *args, **kwargs)

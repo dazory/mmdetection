@@ -38,7 +38,8 @@ class NViewsFasterRCNN(NViewsTwoStageDetector):
                  test_cfg,
                  neck=None,
                  pretrained=None,
-                 init_cfg=None):
+                 init_cfg=None,
+                 **kwargs):
         super(NViewsFasterRCNN, self).__init__(
             backbone=backbone,
             neck=neck,
@@ -47,4 +48,5 @@ class NViewsFasterRCNN(NViewsTwoStageDetector):
             train_cfg=train_cfg,
             test_cfg=test_cfg,
             pretrained=pretrained,
-            init_cfg=init_cfg)
+            init_cfg=init_cfg,
+            **kwargs)
