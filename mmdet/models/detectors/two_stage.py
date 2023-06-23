@@ -221,3 +221,15 @@ class NViewsTwoStageDetector(TwoStageDetector, NViewsBaseDetector):
 
     def __init__(self, *args, **kwargs):
         TwoStageDetector.__init__(self, *args, **kwargs)
+
+    def simple_test(self, img, img_metas, proposals=None, rescale=False, **kwargs):
+        """Test without augmentation."""
+        assert self.with_bbox, 'Bbox head must be implemented.'
+        x = self.extract_feat(img)
+        if proposals is None:
+            proposal_list = self.rpn_head.simple_test_rpn(x, img_metas)
+        else:
+            proposal_list = proposals
+
+        return self.roi_head.simple_test(
+            x, proposal_list, img_metas, rescale=rescale)

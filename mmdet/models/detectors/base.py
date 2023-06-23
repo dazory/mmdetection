@@ -383,6 +383,29 @@ class NViewsBaseDetector(BaseDetector):
 
         self.do_something = build_do_something(do_something) if do_something is not None else None
 
+    @auto_fp16(apply_to=('img',))
+    def forward(self, img, img_metas, return_loss=True, num_views=2, **kwargs):
+        """Calls either :func:`forward_train` or :func:`forward_test` depending
+        on whether ``return_loss`` is ``True``.
+
+        Note this setting will change the expected inputs. When
+        ``return_loss=True``, img and img_meta are single-nested (i.e. Tensor
+        and List[dict]), and when ``resturn_loss=False``, img and img_meta
+        should be double nested (i.e.  List[Tensor], List[List[dict]]), with
+        the outer list indicating test time augmentations.
+        """
+        if torch.onnx.is_in_onnx_export():
+            assert len(img_metas) == 1
+            return self.onnx_export(img[0], img_metas[0])
+
+        if return_loss:
+            return self.forward_train(img, img_metas, **kwargs)
+        else:
+            if num_views > 1:
+                assert num_views == 2, 'only support 2 views'
+                img_metas[0] += img_metas[0]
+            return self.forward_test(img, img_metas, **kwargs)
+
     def _merge(self, data):
         _img = [v for k, v in data.items() if match(k, 'img')]
         self.num_views = len(_img)
