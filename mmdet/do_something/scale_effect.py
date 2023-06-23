@@ -9,20 +9,21 @@ from .builder import DO_SOMETHING
 
 @DO_SOMETHING.register_module()
 class ScaleEffect:
-    def __init__(self):
+    def __init__(self, key='roi_head.bbox_roi_extractor'):
         super().__init__()
         self.scales = dict(s=[], m=[], l=[])
         self.dists = dict(s=[], m=[], l=[])
         self.outputs = dict()
         self.ths = [32, 96]
         self.min_samples = 10
+        self.key = key
 
     def _save_scale_and_dist(self, hook_results, num_views, data, **kwargs):
         assert num_views == 2, "Only support 2 views for now."
 
         # Prepare data
-        feats, _ = hook_results['input']['roi_head.bbox_roi_extractor']
-        module = hook_results['module']['roi_head.bbox_roi_extractor']
+        feats, _ = hook_results['input'][self.key]
+        module = hook_results['module'][self.key]
 
         gt_rois = bbox2roi(data['gt_bboxes'])
         gt_bbox_feats = module(feats[:module.num_inputs], gt_rois)
