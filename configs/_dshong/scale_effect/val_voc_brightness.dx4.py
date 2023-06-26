@@ -42,7 +42,7 @@ test_pipeline = [
         transforms=[
             dict(type='Resize', keep_ratio=True),
             dict(type='RandomFlip'),
-            dict(type='RandomColor', num_views=num_views),
+            dict(type='Brightness', dx=dx, num_views=num_views),
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
             dict(type='ImageToTensor', keys=['img', 'img2']),

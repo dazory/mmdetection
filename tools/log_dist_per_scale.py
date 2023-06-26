@@ -4,6 +4,7 @@ import os
 import os.path as osp
 import time
 import warnings
+from collections import OrderedDict
 
 import mmcv
 import torch
@@ -29,6 +30,7 @@ def parse_args():
     parser.add_argument(
         '--work-dir',
         help='the directory to save the file containing evaluation metrics')
+    parser.add_argument('--name', help='the directory to save the file containing evaluation metrics')
     parser.add_argument('--out', help='output result file in pickle format')
     parser.add_argument(
         '--fuse-conv-bn',
@@ -191,6 +193,7 @@ def main():
 
     if args.debug:
         cfg.data.workers_per_gpu = 0
+        test_dataloader_default_args['workers_per_gpu'] = 0
         cfg.load_from = None
         if not args.wandb:
             cfg.log_config.hooks = [hook for (i, hook) in enumerate(cfg.log_config.hooks) if
@@ -223,7 +226,7 @@ def main():
     if args.work_dir is not None and rank == 0:
         mmcv.mkdir_or_exist(osp.abspath(args.work_dir))
         timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-        json_file = osp.join(args.work_dir, f'eval_{timestamp}.json')
+        json_file = osp.join(args.work_dir, f'{args.name}_eval.json')
 
     # build the dataloader
     dataset = build_dataset(cfg.data.test)
@@ -249,12 +252,19 @@ def main():
     else:
         model.CLASSES = dataset.CLASSES
 
-    if not distributed:
-        model = build_dp(model, cfg.device, device_ids=cfg.gpu_ids)
-        outputs = log_dist_per_scale(model, data_loader, args.show, args.show_dir,
-                                     args.show_score_thr)
-    else:
-        raise NotImplementedError('Only non-distributed testing is supported now.')
+    try:
+        outputs = torch.load(f"{args.work_dir}/{args.name}.outputs.pt")
+        outputs2 = torch.load(f"{args.work_dir}/{args.name}.outputs2.pt")
+    except:
+        if not distributed:
+            model = build_dp(model, cfg.device, device_ids=cfg.gpu_ids)
+            outputs, outputs2 = log_dist_per_scale(model, data_loader, args.show, args.show_dir,
+                                         args.show_score_thr)
+        else:
+            raise NotImplementedError('Only non-distributed testing is supported now.')
+
+        torch.save(outputs, f"{args.work_dir}/{args.name}.outputs.pt")
+        torch.save(outputs2, f"{args.work_dir}/{args.name}.outputs2.pt")
 
     rank, _ = get_dist_info()
     if rank == 0:
@@ -265,19 +275,54 @@ def main():
         if args.format_only:
             dataset.format_results(outputs, **kwargs)
         if args.eval:
-            eval_kwargs = cfg.get('evaluation', {}).copy()
-            # hard-code way to remove EvalHook args
-            for key in [
-                    'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
-                    'rule', 'dynamic_intervals'
-            ]:
-                eval_kwargs.pop(key, None)
-            eval_kwargs.update(dict(metric=args.eval, **kwargs))
-            metric = dataset.evaluate(outputs, **eval_kwargs)
-            print(metric)
-            metric_dict = dict(config=args.config, metric=metric)
-            if args.work_dir is not None and rank == 0:
-                mmcv.dump(metric_dict, json_file)
+            try:
+                metric_dict = torch.load(json_file)
+                metric1 = metric_dict['metric1']
+                metric2 = metric_dict['metric2']
+                metric21 = metric_dict['metric21']
+            except:
+                eval_kwargs = cfg.get('evaluation', {}).copy()
+                # hard-code way to remove EvalHook args
+                for key in [
+                        'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
+                        'rule', 'dynamic_intervals'
+                ]:
+                    eval_kwargs.pop(key, None)
+                eval_kwargs.update(dict(metric=args.eval, **kwargs))
+                scale_ranges = [(0, 100), (100, 200), (200, 300), (300, 400), (400, 500), (500, 600), (600, 700)]
+                metric1 = dataset.evaluate(outputs, **eval_kwargs, scale_ranges=scale_ranges)
+                metric2 = dataset.evaluate(outputs2, **eval_kwargs, scale_ranges=scale_ranges)
+
+                metric21 = OrderedDict()
+                for k, v in metric1.items():
+                    if k not in ['mAP', 'AP50']:
+                        metric21[k] = metric2.get(k, '0.0') / v if v != 0 else 0.0
+
+                metric_dict = dict(config=args.config, metric1=metric1, metric2=metric2, metric21=metric21)
+                if args.work_dir is not None and rank == 0:
+                    mmcv.dump(metric_dict, json_file)
+            if False:
+                import matplotlib.pyplot as plt
+                x = [int(k.split(':')[-1].replace(')', '')) for k, v in metric21.items() if v != 0]
+                y = [v for k, v in metric21.items() if v != 0]
+                fig, ax = plt.subplots(1, 1)
+                ax.plot(x, y, 'o-')
+                ax.set_xlabel('scale')
+                ax.set_ylabel('AP50_aug / AP50_clean')
+                ax.set_title('Affinity')
+                plt.savefig(f"{args.work_dir}/{args.name}_affinity2.png")
+
+                scale_ranges = [(0, 50), (50, 100), (100, 150), (150, 200), (200, 250), (250, 300),
+                                (300, 350), (350, 400), (400, 450), (450, 500), (500, 550), (550, 600),
+                                (600, 650), (650, 700)]
+                metric1 = dataset.evaluate(outputs, **eval_kwargs, scale_ranges=scale_ranges)
+                metric2 = dataset.evaluate(outputs2, **eval_kwargs, scale_ranges=scale_ranges)
+
+                metric21 = OrderedDict()
+                for k, v in metric1.items():
+                    if k not in ['mAP', 'AP50']:
+                        metric21[k] = metric2.get(k, '0.0') / v if v != 0 else 0.0
+
 
 
 if __name__ == '__main__':

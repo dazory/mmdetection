@@ -91,6 +91,18 @@ class VOCDataset(XMLDataset):
                     use_legacy_coordinate=True)
                 mean_aps.append(mean_ap)
                 eval_results[f'AP{int(iou_thr * 100):02d}'] = round(mean_ap, 3)
+
+                if scale_ranges is not None:
+                    mean_ap, _ = eval_map(
+                        results,
+                        annotations,
+                        scale_ranges=scale_ranges,
+                        iou_thr=iou_thr,
+                        dataset=ds_name,
+                        logger=logger,
+                        use_legacy_coordinate=True)
+                    for i, scale_range in enumerate(scale_ranges):
+                        eval_results[f'AP{int(iou_thr * 100):02d}({scale_range[0]}:{scale_range[1]})'] = round(mean_ap[i], 3)
             eval_results['mAP'] = sum(mean_aps) / len(mean_aps)
             eval_results.move_to_end('mAP', last=False)
         elif metric == 'recall':

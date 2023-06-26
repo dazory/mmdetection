@@ -26,14 +26,11 @@ class Brightness:
     def aug(self, img):
         assert np.max(img) <= 1 and 0 <=np.min(img), "img must be in [0, 1]"
 
-        # Sample parameters
-        while(True):
-            dx = np.random.uniform(self.dx - self.err_max, self.dx + self.err_max)
-            if np.random.rand() < 0.5:
-                dx *= -1
-            img_aug = np.clip(img + dx, 0, 1)
-            _dx = np.mean(np.abs(img - img_aug))
-            if abs(self.dx - _dx) < self.err_max: break
+        dx = self.dx
+        if np.random.rand() < 0.5:
+            dx *= -1
+        img_aug = np.clip(img + dx, 0, 1)
+        _dx = np.mean(np.abs(img - img_aug))
 
         return img_aug
 
