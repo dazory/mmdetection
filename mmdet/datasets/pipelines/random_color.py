@@ -3,6 +3,7 @@ import copy
 import warnings
 import math
 import numpy as np
+import cv2
 
 from ..builder import PIPELINES
 
@@ -14,6 +15,7 @@ class RandomColor:
                  cut_max=200,
                  T_min=0.0, T_max=0.05,
                  keep_orig=True,
+                 use_oa=False, oa_version=None,
                  ):
         super().__init__()
         self.num_views = num_views
@@ -22,19 +24,44 @@ class RandomColor:
         self.keep_orig = keep_orig
         if self.keep_orig and self.num_views < 2: warnings.warn(
             f'keep_orig==True but num_views is less than two. This has no effect.')
+        self.use_oa = use_oa
+        self.oa_version = oa_version
 
-    def aug(self, img):
+    def aug(self, img, gt_bboxes=None):
         assert np.max(img) <= 1 and 0 <=np.min(img), "img must be in [0, 1]"
 
         # Sample parameters
         cut = np.random.randint(2, self.cut_max)
         k_min = np.random.randint(1, cut)
 
+        # Mask
+        if self.use_oa:
+            masks = np.zeros((len(gt_bboxes), *img.shape))
+            for i, bbox in enumerate(gt_bboxes):
+                mask = np.zeros(img.shape, dtype=np.uint8)
+                x1, y1, x2, y2 = bbox
+                sigma_x, sigma_y = (x2 - x1) / 6.0, (y2 - y1) / 6.0
+                kernel_x, kernel_y = 2 * int(4 * sigma_x) + 1, 2 * int(4 * sigma_y) + 1
+                cv2.rectangle(mask, (int(x1), int(y1)), (int(x2), int(y2)), color=(255, 255, 255), thickness=-1)
+                masks[i] = cv2.GaussianBlur(mask, (kernel_x, kernel_y), sigmaX=sigma_x, sigmaY=sigma_y)
+            mask = np.max(masks, axis=0)
+
         # Augmentation
         freqs = np.zeros(img.shape, dtype=np.float32)
         for i in range(k_min, min(k_min+20, cut)):
             beta = np.random.rand(3) * np.sqrt(np.random.uniform(self.T_min, self.T_max))
-            freqs += beta * np.sin(math.pi * i * copy.deepcopy(img))
+            if self.use_oa:
+                _freqs = beta * np.sin(math.pi * i * copy.deepcopy(img))
+                if self.oa_version == 'none':
+                    freqs += _freqs * (1.0 - mask / 255)
+                elif self.oa_version == 'random':
+                    if np.random.rand() < 0.5:
+                        _freqs = _freqs * (1.0 - mask / 255)
+                    freqs +=_freqs
+                else:
+                    raise NotImplementedError
+            else:
+                freqs += beta * np.sin(math.pi * i * copy.deepcopy(img))
         img_aug = np.clip(img + freqs, 0, 1)
 
         return img_aug
@@ -49,7 +76,7 @@ class RandomColor:
 
         i_min = 2 if self.keep_orig else 1
         for i in range(i_min, self.num_views + 1):
-            img_aug = self.aug(copy.deepcopy(img))
+            img_aug = self.aug(copy.deepcopy(img), results['gt_bboxes'])
             dx = np.mean(np.abs(img - img_aug))
 
             if ori_type == np.uint8:
