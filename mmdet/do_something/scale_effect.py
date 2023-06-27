@@ -11,10 +11,11 @@ from .builder import DO_SOMETHING
 class ScaleEffect:
     def __init__(self, key='roi_head.bbox_roi_extractor'):
         super().__init__()
-        self.scales = dict(s=[], m=[], l=[])
-        self.dists = dict(s=[], m=[], l=[])
-        self.entropy = dict(s=[], m=[], l=[])
-        self.jsd = dict(s=[], m=[], l=[])
+        scales = dict(s=[], m=[], l=[])
+        dists = dict(s=[], m=[], l=[])
+        entropy = dict(s=[], m=[], l=[])
+        jsd = dict(s=[], m=[], l=[])
+        self.storage = dict(scales=scales, dists=dists, entropy=entropy, jsd=jsd)
         self.outputs = dict()
         self.ths = [32, 96]
         self.min_samples = 10
@@ -22,6 +23,7 @@ class ScaleEffect:
 
     def _save_scale_and_dist(self, hook_results, num_views, data, hook_results2=None, **kwargs):
         assert num_views == 2, "Only support 2 views for now."
+        outputs = dict()
 
         # Prepare data
         feats, _ = hook_results['input'][self.key]
@@ -39,52 +41,43 @@ class ScaleEffect:
         log_gt_bbox_probs = torch.log(gt_bbox_probs + 1e-6)
         entropy = -torch.sum(gt_bbox_probs * log_gt_bbox_probs, dim=1)
         mean_entropy = (entropy[:div] + entropy[div:]) / 2.
+        outputs.update({'entropy': mean_entropy})
 
         # Compute Jensen-Shannon divergence between features
         p_mixture = torch.clamp((gt_bbox_probs[:div] + gt_bbox_probs[div:]) / 2.0, 1e-6, 1.).log()
         jsd = (F.kl_div(p_mixture, gt_bbox_probs[:div], reduction='none') +
                 F.kl_div(p_mixture, gt_bbox_probs[div:], reduction='none')) / 2.
         jsd = torch.sum(jsd, dim=1)
+        outputs.update({'jsd': jsd})
 
         # Compute Euclidean distance between features
         euclidean_dists = F.pairwise_distance(
             gt_bbox_feats[:div], gt_bbox_feats[div:], p=1)  # (1024,)
+        outputs.update({'dists': euclidean_dists})
 
         # Compute scale
         sqrt_hws = torch.sqrt(
             (gt_rois[:, 3] - gt_rois[:, 1]) * (gt_rois[:, 4] - gt_rois[:, 2])
         )
         sqrt_hws = torch.chunk(sqrt_hws, num_views)[0]
+        outputs.update({'scales': sqrt_hws})
 
         idx_s = sqrt_hws < self.ths[0]
         idx_m = (self.ths[0] <= sqrt_hws) * (sqrt_hws < self.ths[1])
         idx_l = self.ths[1] <= sqrt_hws
 
-        self.scales['s'] += list(sqrt_hws[idx_s])
-        self.dists['s'] += list(euclidean_dists[idx_s])
-        self.scales['m'] += list(sqrt_hws[idx_m])
-        self.dists['m'] += list(euclidean_dists[idx_m])
-        self.scales['l'] += list(sqrt_hws[idx_l])
-        self.dists['l'] += list(euclidean_dists[idx_l])
-        self.entropy['s'] += list(mean_entropy[idx_s])
-        self.entropy['m'] += list(mean_entropy[idx_m])
-        self.entropy['l'] += list(mean_entropy[idx_l])
-        self.jsd['s'] += list(jsd[idx_s])
-        self.jsd['m'] += list(jsd[idx_m])
-        self.jsd['l'] += list(jsd[idx_l])
+        for key in ['scales', 'dists', 'entropy', 'jsd']:
+            for (_scale, _idx) in [('s', idx_s), ('m', idx_m), ('l', idx_l)]:
+                self.storage[key][_scale] += list(outputs[key][_idx])
 
     def __call__(self, hook_results, num_views, outputs, **kwargs):
         assert num_views == 2, "Only support 2 views for now."
         self._save_scale_and_dist(hook_results, num_views, **kwargs)
-        for k, v in self.scales.items():
-            if len(v) > self.min_samples:
-                self.outputs[f"scale_{k}"] = torch.mean(torch.stack(v[:self.min_samples]))
-                del v[:self.min_samples]
-
-        for k, v in self.dists.items():
-            if len(v) > self.min_samples:
-                self.outputs[f"dist_{k}"] = torch.mean(torch.stack(v[:self.min_samples]))
-                del v[:self.min_samples]
+        for key, data in self.storage.items():
+            for _scale, _value in data.items():
+                if len(_value) > self.min_samples:
+                    self.outputs[f"{key}_{_scale}"] = torch.mean(torch.stack(_value[:self.min_samples]))
+                    del _value[:self.min_samples]
 
         outputs.update(self.outputs)
 
