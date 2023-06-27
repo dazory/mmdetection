@@ -3,6 +3,7 @@ import argparse
 import copy
 import os
 import os.path as osp
+import numpy as np
 
 import mmcv
 import torch
@@ -12,13 +13,13 @@ from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+from tools.analysis_tools.robustness_eval import get_results
 
 from mmdet import datasets
 from mmdet.apis import multi_gpu_test, set_random_seed, single_gpu_test
 from mmdet.core import eval_map
 from mmdet.datasets import build_dataloader, build_dataset
 from mmdet.models import build_detector
-from tools.analysis_tools.robustness_eval import get_results
 
 
 def coco_eval_with_return(result_files,
@@ -172,6 +173,13 @@ def parse_args():
         'It also allows nested list/tuple values, e.g. key="[(a,b),(c,d)]" '
         'Note that the quotation marks are necessary and that no white space '
         'is allowed.')
+    parser.add_argument(
+        '--load-dataset',
+        type=str,
+        choices=['original', 'corrupted'],
+        default='original',
+        help='Add Corrupt'
+    )
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -258,14 +266,34 @@ def main():
 
             test_data_cfg = copy.deepcopy(cfg.data.test)
             # assign corruption and severity
-            if corruption_severity > 0:
-                corruption_trans = dict(
-                    type='Corrupt',
-                    corruption=corruption,
-                    severity=corruption_severity)
-                # TODO: hard coded "1", we assume that the first step is
-                # loading images, which needs to be fixed in the future
-                test_data_cfg['pipeline'].insert(1, corruption_trans)
+
+            if args.load_dataset == 'original':
+                if corruption_severity > 0:
+                    corruption_trans = dict(
+                        type='Corrupt',
+                        corruption=corruption,
+                        severity=corruption_severity)
+                    # TODO: hard coded "1", we assume that the first step is
+                    # loading images, which needs to be fixed in the future
+                    test_data_cfg['pipeline'].insert(1, corruption_trans)
+            elif args.load_dataset == 'corrupted':
+                if '/cityscapes/' in test_data_cfg['img_prefix']:
+                    test_data_cfg['img_prefix'] = test_data_cfg['img_prefix'].replace('cityscapes', 'cityscapes-c')
+                    test_data_cfg['img_prefix'] = f"{test_data_cfg['img_prefix']}{corruption}/{corruption_severity}/"
+                elif '/cityscapes-c/' in test_data_cfg['img_prefix']:
+                    test_data_cfg['img_prefix'] = f"{test_data_cfg['img_prefix']}{corruption}/{corruption_severity}/"
+                elif '/coco/' in test_data_cfg['img_prefix']:
+                    test_data_cfg['img_prefix'] = test_data_cfg['img_prefix'].replace('coco', 'coco-c')
+                    test_data_cfg['img_prefix'] = f"{test_data_cfg['img_prefix']}{corruption}/{corruption_severity}/"
+                elif '/coco-c/' in test_data_cfg['img_prefix']:
+                    test_data_cfg['img_prefix'] = f"{test_data_cfg['img_prefix']}{corruption}/{corruption_severity}/"
+                else:
+                    if not 'VOCdevkit' in test_data_cfg['img_prefix']:
+                        raise NotImplementedError(
+                            "set load_dataset as 'corrupted' but use original dataset.")
+            else:
+                raise NotImplementedError(
+                    "The types of load_dataset can be 'original' or 'corrupted'.")
 
             # print info
             print(f'\nTesting {corruption} at severity {corruption_severity}')
@@ -295,6 +323,15 @@ def main():
                 model.CLASSES = checkpoint['meta']['CLASSES']
             else:
                 model.CLASSES = dataset.CLASSES
+
+            if args.load_dataset == 'corrupted':
+                if '/VOCdevkit/' in data_loader.dataset.img_prefix:
+                    data_loader.dataset.img_prefix = data_loader.dataset.img_prefix.replace('VOCdevkit', 'VOCdevkit-C')
+                    data_loader.dataset.img_prefix = f"{data_loader.dataset.img_prefix}{corruption}/{corruption_severity}/"
+                    data_loader.dataset.use_voc_c = True
+                elif '/VOCdevkit-C/' in data_loader.dataset.img_prefix:
+                    data_loader.dataset.img_prefix = f"{data_loader.dataset.img_prefix}{corruption}/{corruption_severity}/"
+                    data_loader.dataset.use_voc_c = True
 
             if not distributed:
                 model = MMDataParallel(model, device_ids=[0])
@@ -352,8 +389,14 @@ def main():
                                     + f'.{name}'
                                     result_files = dataset.results2json(
                                         outputs_, result_file)
-                        eval_results = coco_eval_with_return(
-                            result_files, eval_types, dataset.coco)
+                        if len(np.concatenate([np.concatenate(output) for output in outputs])) == 0:
+                            eval_results = dict(bbox=dict(
+                                AP=0.0, AP50=0.0, AP75=0.0, APs=0.0, APm=0.0, APl=0.0,
+                                AR1=0.0, AR10=0.0, AR100=0.0, ARs=0.0, ARm=0.0, ARl=0.0))
+                            print('NOTE: It does not include any output. 0.0 will be eval_results.')
+                        else:
+                            eval_results = coco_eval_with_return(
+                                result_files, eval_types, dataset.coco)
                         aggregated_results[corruption][
                             corruption_severity] = eval_results
                     else:
