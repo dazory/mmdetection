@@ -157,7 +157,7 @@ def main():
     for k, v in dists.items(): merged_dists += v
     for k, v in entropy.items(): merged_entropy += v
 
-    def ridge_plot(scales, distances, name):
+    def ridge_plot(scales, distances, name, hspace=-0.9):
         import pandas as pd
         import numpy as np
         from sklearn.neighbors import KernelDensity
@@ -166,7 +166,6 @@ def main():
         import matplotlib.gridspec as grid_spec
 
         num_bins = 10
-        hspace = -1.0# 0.9
 
         df = pd.DataFrame({'scale': [s.item() for s in scales], 'distance': [d.item() for d in distances]})
         df.sort_values(by='scale', inplace=True)
@@ -174,7 +173,12 @@ def main():
         _num_samples = len(df)
         # _df_in = df.sort_values(by='distance')['distance'][0:-int(_num_samples*0.01)]
         if 'brightness' in name:
-            x_min, x_max = 0, 10000 # _df_in.min(), _df_in.max()
+            if '2' in name:
+                x_min, x_max = 0, 10000  # _df_in.min(), _df_in.max()
+            elif '4' in name:
+                x_min, x_max = 500, 16000
+            elif '6' in name:
+                x_min, x_max = 2000, 20000  # _df_in.min(), _df_in.max()
         else:
             x_min, x_max = 2000, 18000
 
