@@ -126,3 +126,7 @@ work_dirs/
 # Project
 configs/*
 command*.sh
+tools/wandb
+vis/
+wandb/
+artifacts/
