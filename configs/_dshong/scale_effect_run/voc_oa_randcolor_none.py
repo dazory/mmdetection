@@ -1,7 +1,7 @@
 _base_ = ['../faster_rcnn_r50_fpn_1x_voc0712.py']
 
 num_views = 2
-name = "voc-randcolor-faster_rcnn"
+name = f"voc-oa_randcolor_none-faster_rcnn_fpn"
 
 WANDB_ENTITY = "kaist-url-ai28"
 WANDB_PROJECT_NAME = "mmdetection_oa"
@@ -36,6 +36,7 @@ data = dict(train=dict(dataset=dict(pipeline=train_pipeline)))
 ### Logger ###
 log_config = dict(
     hooks=[
+        dict(type='TextLoggerHook'),
         dict(type='CustomMMDetWandbHook',
              init_kwargs={
                  "entity": WANDB_ENTITY, "project": WANDB_PROJECT_NAME,

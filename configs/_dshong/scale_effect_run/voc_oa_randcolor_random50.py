@@ -1,8 +1,7 @@
 _base_ = ['../faster_rcnn_r50_fpn_1x_voc0712.py']
 
 num_views = 2
-cut_max=200
-name = f"voc-oa_randcolor_rand_cmax{cut_max}-faster_rcnn_fpn"
+name = f"voc-oa_randcolor_rand-faster_rcnn_fpn"
 
 WANDB_ENTITY = "kaist-url-ai28"
 WANDB_PROJECT_NAME = "mmdetection_oa"
@@ -25,7 +24,7 @@ train_pipeline = [
     dict(type='LoadAnnotations', with_bbox=True),
     dict(type='Resize', img_scale=(1000, 600), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.5),
-    dict(type='RandomColor', num_views=num_views, use_oa=True, oa_version='random', cut_max=cut_max),
+    dict(type='RandomColor', num_views=num_views, use_oa=True, oa_version='random'),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
@@ -37,6 +36,7 @@ data = dict(train=dict(dataset=dict(pipeline=train_pipeline)))
 ### Logger ###
 log_config = dict(
     hooks=[
+        dict(type='TextLoggerHook'),
         dict(type='CustomMMDetWandbHook',
              init_kwargs={
                  "entity": WANDB_ENTITY, "project": WANDB_PROJECT_NAME,
