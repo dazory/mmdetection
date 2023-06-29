@@ -17,6 +17,8 @@ from .transforms import (Albu, CopyPaste, CutOut, Expand, MinIoURandomCrop,
                          YOLOXHSVRandomAug)
 from .random_color import RandomColor
 from .brightness import Brightness
+from .augmix import AugMix
+from .color import Color
 
 __all__ = [
     'Compose', 'to_tensor', 'ToTensor', 'ImageToTensor', 'ToDataContainer',
@@ -30,4 +32,5 @@ __all__ = [
     'EqualizeTransform', 'BrightnessTransform', 'ContrastTransform',
     'Translate', 'RandomShift', 'Mosaic', 'MixUp', 'RandomAffine',
     'YOLOXHSVRandomAug', 'CopyPaste', 'RandomColor', 'Brightness',
+    'AugMix', 'Color',
 ]
