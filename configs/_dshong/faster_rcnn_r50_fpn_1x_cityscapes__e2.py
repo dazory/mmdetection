@@ -12,6 +12,7 @@ runner = dict(type='EpochBasedRunner', max_epochs=2)  # actual epoch = 2 * 8 = 1
 
 ### Logger ###
 log_config = dict(
+    dict(type='TextLoggerHook'),
     hooks=[
         dict(type='MMDetWandbHook',
              init_kwargs={

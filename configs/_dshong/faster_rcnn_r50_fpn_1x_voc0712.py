@@ -14,6 +14,7 @@ runner = dict(type='EpochBasedRunner', max_epochs=4)  # actual epoch = 4 * 3 = 1
 ### Logger ###
 log_config = dict(
     hooks=[
+        dict(type='TextLoggerHook'),
         dict(type='MMDetWandbHook',
              init_kwargs={
                  "entity": WANDB_ENTITY, "project": WANDB_PROJECT_NAME,
