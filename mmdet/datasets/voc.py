@@ -31,6 +31,27 @@ class VOCDataset(XMLDataset):
         else:
             raise ValueError('Cannot infer dataset year from img_prefix')
 
+    def prepare_test_img(self, idx):
+        """Get testing data after pipeline.
+
+        Args:
+            idx (int): Index of data.
+
+        Returns:
+            dict: Testing data after pipeline with new keys introduced by \
+                pipeline.
+        """
+
+        img_info = self.data_infos[idx]
+        if hasattr(self, 'use_c'):
+            if self.use_c:
+                img_info['filename'] = img_info['filename'].replace('.jpg', '.png')
+        results = dict(img_info=img_info)
+        if self.proposals is not None:
+            results['proposals'] = self.proposals[idx]
+        self.pre_pipeline(results)
+        return self.pipeline(results)
+
     def evaluate(self,
                  results,
                  metric='mAP',

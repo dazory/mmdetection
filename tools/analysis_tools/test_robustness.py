@@ -302,6 +302,14 @@ def main():
             # TODO: support multiple images per gpu
             #       (only minor changes are needed)
             dataset = build_dataset(test_data_cfg)
+            if args.load_dataset == 'corrupted':
+                if '/VOCdevkit/' in dataset.img_prefix:
+                    dataset.img_prefix = dataset.img_prefix.replace('VOCdevkit', 'VOCdevkit-C')
+                    dataset.img_prefix = f"{dataset.img_prefix}{corruption}/{corruption_severity}/"
+                    dataset.use_c = True
+                elif '/VOCdevkit-C/' in dataset.img_prefix:
+                    dataset.img_prefix = f"{dataset.img_prefix}{corruption}/{corruption_severity}/"
+                    dataset.use_c = True
             data_loader = build_dataloader(
                 dataset,
                 samples_per_gpu=1,
@@ -323,15 +331,6 @@ def main():
                 model.CLASSES = checkpoint['meta']['CLASSES']
             else:
                 model.CLASSES = dataset.CLASSES
-
-            if args.load_dataset == 'corrupted':
-                if '/VOCdevkit/' in data_loader.dataset.img_prefix:
-                    data_loader.dataset.img_prefix = data_loader.dataset.img_prefix.replace('VOCdevkit', 'VOCdevkit-C')
-                    data_loader.dataset.img_prefix = f"{data_loader.dataset.img_prefix}{corruption}/{corruption_severity}/"
-                    data_loader.dataset.use_voc_c = True
-                elif '/VOCdevkit-C/' in data_loader.dataset.img_prefix:
-                    data_loader.dataset.img_prefix = f"{data_loader.dataset.img_prefix}{corruption}/{corruption_severity}/"
-                    data_loader.dataset.use_voc_c = True
 
             if not distributed:
                 model = MMDataParallel(model, device_ids=[0])
