@@ -122,3 +122,12 @@ work_dirs/
 *.pth
 *.py~
 *.sh~
+
+# Project
+configs/*
+command*.sh
+artifacts/
+tools/artifacts/
+tools/wandb/
+wandb/
+vis/
