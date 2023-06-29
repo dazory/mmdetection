@@ -57,7 +57,7 @@ def sharpness(pil_img, level, use_random=True, **kwargs):
 class Color:
     def __init__(self, version='0',
                  num_views=2, keep_orig=True,
-                 use_mix=False,
+                 use_mix=False, mixture_coeff=None,
                  use_oa=False, use_blur=True, spatial_ratio=4, sigma_ratio=0.3,
                  severity=3,
                  ):
@@ -72,10 +72,12 @@ class Color:
         self.use_mix = use_mix
         if use_mix:
             self.aug_prob_coeff = 1.0
+            self.mixture_coeff = (1.0, 1.0) if mixture_coeff is None else mixture_coeff
             self.mixture_width = 3
             self.mixture_depth = -1
         self.use_oa = use_oa
         if use_oa:
+            self.mixture_coeff = (20.0, 5.0) if mixture_coeff is None else mixture_coeff
             self.use_blur = use_blur
             if use_blur:
                 self.spatial_ratio = spatial_ratio  # Boost blurred mask generation
@@ -141,7 +143,7 @@ class Color:
         if self.use_mix:
             # Sample parameters
             ws = np.float32(np.random.dirichlet([self.aug_prob_coeff] * self.mixture_width))
-            m = np.float32(np.random.beta(self.aug_prob_coeff, self.aug_prob_coeff))
+            m = np.float32(np.random.beta(self.mixture_coeff[0], self.mixture_coeff[1]))
 
             img_mix = np.zeros_like(img.copy(), dtype=np.float32)
             for i in range(self.mixture_width):
@@ -151,33 +153,22 @@ class Color:
                     img_aug = self._aug(img_aug, img_size)
                 img_mix += ws[i] * np.asarray(img_aug, dtype=np.float32)
 
-            img_augmix = (1 - m) * img + m * img_mix
-            return img_augmix.astype(np.uint8)
+            if self.use_oa:
+                mask_all = np.max(self.mask_gt_bboxes_list, axis=0)
+                img = m * img * mask_all + (1.0 - m) * img * (1.0 - mask_all)
+                img_mix = (1.0 - m) * img_mix * mask_all + m * img_mix * (1.0 - mask_all)
+                img_augmix = img + img_mix
+            else:
+                img_augmix = (1 - m) * img + m * img_mix
+            return np.asarray(img_augmix, dtype=np.uint8)
         else:
             img_aug = self._aug(Image.fromarray(img.copy(), "RGB"), img_size)
-            if self.use_oa:
-                e = 0
-                severity = 5
-                pil_img = self.aug_list[2](Image.fromarray(img[...,::-1].copy(), "RGB"),
-                                           level=severity, img_size=img_size, use_random=False)
-                Image.fromarray(img[...,::-1].copy(), "RGB").save(f'/ws/data/dshong/mmdetection/visualization/scale_effect_run2/mix_bbox/{e}.0.orig.png')
-                pil_img.save(f'/ws/data/dshong/mmdetection/visualization/scale_effect_run2/mix_bbox/{e}.0.aug.png')
-                for m in [0.0, 0.2, 0.5, 0.8, 1.0]:
-                    mask_all = np.max(self.mask_gt_bboxes_list, axis=0)
-                    np_img = np.asarray(pil_img, dtype=np.uint8)
-                    _img0 = np_img * ((1.0 - m) * (1.0 - mask_all))
-                    _img1 = np_img * (1.0 - m)
-                    _img2 = np_img * ((1.0 - m) * (1.0 - mask_all))
-
-                    np_img = img * (m * mask_all) +  np_img * ((1.0 - m) * (1.0 - mask_all))
-                    Image.fromarray(np.asarray(np_img[..., ::-1], dtype=np.uint8)).\
-                        save(f'/ws/data/dshong/mmdetection/visualization/scale_effect_run2/mix_bbox/{e}.1.mix_bbox_m{m:.1f}.png')
-            return img_aug.astype(np.uint8)
+            return np.asarray(img_aug, dtype=np.uint8)
 
     def _aug(self, img, img_size):
         op = np.random.choice(self.aug_list)
         pil_img = op(img, level=self.severity, img_size=img_size)
-        return np.asarray(pil_img, dtype=np.uint8)
+        return pil_img
 
     def __repr__(self):
         repr_str = self.__class__.__name__
