@@ -131,3 +131,6 @@ tools/artifacts/
 tools/wandb/
 wandb/
 vis/
+
+# Server dependent
+tools/command_generator.py
