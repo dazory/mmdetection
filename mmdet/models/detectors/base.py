@@ -401,9 +401,9 @@ class NViewsBaseDetector(BaseDetector):
         if return_loss:
             return self.forward_train(img, img_metas, **kwargs)
         else:
-            if num_views > 1:
-                assert num_views == 2, 'only support 2 views'
-                img_metas[0] += img_metas[0]
+            # if num_views > 1:
+            #     assert num_views == 2, 'only support 2 views'
+            #     img_metas[0] += img_metas[0]
             return self.forward_test(img, img_metas, **kwargs)
 
     def _merge(self, data):
