@@ -108,6 +108,7 @@ def parse_args():
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--debug', action='store_true', help='debug mode')
     parser.add_argument('--wandb', action='store_true', default=False, help='wandb mode')
+    parser.add_argument('--in_func', action='store_true', default=False, help='into the function')
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -255,11 +256,12 @@ def main():
     try:
         outputs = torch.load(f"{args.work_dir}/{args.name}.outputs.pt")
         outputs2 = torch.load(f"{args.work_dir}/{args.name}.outputs2.pt")
+        if args.in_func:
+            raise Exception('in_func')
     except:
         if not distributed:
             model = build_dp(model, cfg.device, device_ids=cfg.gpu_ids)
-            outputs, outputs2 = log_dist_per_scale(model, data_loader, args.show, args.show_dir,
-                                         args.show_score_thr)
+            outputs, outputs2 = log_dist_per_scale(model, data_loader, args.work_dir, args.name)
         else:
             raise NotImplementedError('Only non-distributed testing is supported now.')
 
