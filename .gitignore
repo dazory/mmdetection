@@ -125,3 +125,4 @@ work_dirs/
 
 # Project
 configs/*
+command*.sh
