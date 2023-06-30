@@ -57,7 +57,7 @@ def sharpness(pil_img, level, use_random=True, **kwargs):
 class Color:
     def __init__(self, version='0',
                  num_views=2, keep_orig=True,
-                 use_mix=False, mixture_coeff=None,
+                 use_mix=False, mixture_width=3, mixture_depth=-1, mixture_coeff=None,
                  use_oa=False, use_blur=True, spatial_ratio=4, sigma_ratio=0.3,
                  severity=3,
                  ):
@@ -73,8 +73,8 @@ class Color:
         if use_mix:
             self.aug_prob_coeff = 1.0
             self.mixture_coeff = (1.0, 1.0) if mixture_coeff is None else mixture_coeff
-            self.mixture_width = 3
-            self.mixture_depth = -1
+            self.mixture_width = mixture_width
+            self.mixture_depth = mixture_depth
         self.use_oa = use_oa
         if use_oa:
             self.mixture_coeff = (20.0, 5.0) if mixture_coeff is None else mixture_coeff
