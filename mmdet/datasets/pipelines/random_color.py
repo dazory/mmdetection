@@ -111,9 +111,9 @@ class RandomColor:
             else:
                 m = np.float32(np.random.beta(self.mixture_coeff[0], self.mixture_coeff[1]))
                 img_augmix = (1 - m) * img + m * img_aug
-            return np.asarray(img_augmix, dtype=np.uint8)
+            return img_augmix
         else:
-            return np.asarray(img_aug, dtype=np.uint8)
+            return img_aug
 
     def __call__(self, results):
         img = results['img']
