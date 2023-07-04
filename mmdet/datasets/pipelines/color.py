@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import warnings
+import scipy
 import cv2
 import numpy as np
 from numpy import random
@@ -58,7 +59,7 @@ class Color:
     def __init__(self, version='0',
                  num_views=2, keep_orig=True,
                  use_mix=False, mixture_width=3, mixture_depth=-1, mixture_coeff=None,
-                 use_oa=False, use_blur=True, spatial_ratio=4, sigma_ratio=0.3,
+                 use_oa=False, oa_version='none', use_blur=True, spatial_ratio=4, sigma_ratio=0.3,
                  severity=3,
                  ):
         self.version = version
@@ -77,6 +78,19 @@ class Color:
             self.mixture_depth = mixture_depth
         self.use_oa = use_oa
         if use_oa:
+            self.oa_version=oa_version
+            if oa_version == 'scale':
+                self.scale_thresholds = [(0, 7), (7, 14), (14, 28), (28, 56), (56, 112), (112, 224), (224, 448), (448, 100000)]
+                self.m_mins = [1.0 - i / len(self.scale_thresholds) for i in range(1, len(self.scale_thresholds)+1)]
+            elif oa_version == 'meanstd':
+                self.scale_thresholds = [(0, 2), (2, 4), (4, 6), (6, 100000)]
+                self.m_mins = [1.0 - i / len(self.scale_thresholds) for i in range(1, len(self.scale_thresholds) + 1)]
+            elif oa_version == 'std':
+                self.scale_thresholds = [(0, 10), (10, 20), (20, 30), (30, 40), (40, 100000)]
+                self.m_mins = [1.0 - i / len(self.scale_thresholds) for i in range(1, len(self.scale_thresholds) + 1)]
+            elif oa_version == 'saliency':
+                self.scale_thresholds = [(0, 5), (5, 10), (10, 20), (20, 100000)]
+                self.m_mins = [1.0 - i / len(self.scale_thresholds) for i in range(1, len(self.scale_thresholds) + 1)]
             self.mixture_coeff = (20.0, 5.0) if mixture_coeff is None else mixture_coeff
             self.use_blur = use_blur
             if use_blur:
@@ -110,16 +124,22 @@ class Color:
             mask_gt_bboxes = np.zeros(target_shape, dtype=np.float32)
             mask_gt_bboxes[y1:y2, x1:x2, :] = 1.0
             if self.use_blur:
-                if (sigma_list[i][0] <= 0 or sigma_list[i][1] <= 0):
-                    mask_gt_bboxes = None
-                else:
+                if not (sigma_list[i][0] <= 0 or sigma_list[i][1] <= 0):
                     mask_gt_bboxes = cv2.GaussianBlur(mask_gt_bboxes, (0, 0),
                                                       sigmaX=sigma_list[i][0], sigmaY=sigma_list[i][1])
-            self.mask_gt_bboxes_list.append(cv2.resize(mask_gt_bboxes, (w_img, h_img)))
+                self.mask_gt_bboxes_list.append(cv2.resize(mask_gt_bboxes, (w_img, h_img)))
+
+        if self.oa_version == 'scale':
+            scales = np.sqrt(
+                (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * (gt_bboxes[:, 3] - gt_bboxes[:, 1])
+            )
+            self.scale_gt_bboxes_list = list(scales)
 
     def __call__(self, results):
         if self.use_oa:
             self._generate_mask_gt_bboxes_list(img_shape=results['img'].shape, gt_bboxes=results['gt_bboxes'])
+            if self.mixture_coeff == -1:
+                self.gt_bboxes = results['gt_bboxes']
 
         results['custom_fields'] = []
         for i in range(1, self.num_views + 1):
@@ -141,26 +161,163 @@ class Color:
         h_img, w_img, _ = img.shape
         img_size = (w_img, h_img)
         if self.use_mix:
-            # Sample parameters
-            ws = np.float32(np.random.dirichlet([self.aug_prob_coeff] * self.mixture_width))
-            m = np.float32(np.random.beta(self.mixture_coeff[0], self.mixture_coeff[1]))
+            if isinstance(self.mixture_coeff, tuple):
+                # Sample parameters
+                ws = np.float32(np.random.dirichlet([self.aug_prob_coeff] * self.mixture_width))
+                m = np.float32(np.random.beta(self.mixture_coeff[0], self.mixture_coeff[1]))
 
-            img_mix = np.zeros_like(img.copy(), dtype=np.float32)
-            for i in range(self.mixture_width):
-                depth = self.mixture_depth if self.mixture_depth > 0 else np.random.randint(1, 4)
-                img_aug = Image.fromarray(img.copy(), "RGB")
-                for _ in range(depth):
-                    img_aug = self._aug(img_aug, img_size)
-                img_mix += ws[i] * np.asarray(img_aug, dtype=np.float32)
+                img_mix = np.zeros_like(img.copy(), dtype=np.float32)
+                for i in range(self.mixture_width):
+                    depth = self.mixture_depth if self.mixture_depth > 0 else np.random.randint(1, 4)
+                    img_aug = Image.fromarray(img.copy(), "RGB")
+                    for _ in range(depth):
+                        img_aug = self._aug(img_aug, img_size)
+                    img_mix += ws[i] * np.asarray(img_aug, dtype=np.float32)
 
-            if self.use_oa:
-                mask_all = np.max(self.mask_gt_bboxes_list, axis=0)
-                img = m * img * mask_all + (1.0 - m) * img * (1.0 - mask_all)
-                img_mix = (1.0 - m) * img_mix * mask_all + m * img_mix * (1.0 - mask_all)
+                if self.use_oa:
+                    mask_all = np.max(self.mask_gt_bboxes_list, axis=0)
+                    img = m * img * mask_all + (1.0 - m) * img * (1.0 - mask_all)
+                    img_mix = (1.0 - m) * img_mix * mask_all + m * img_mix * (1.0 - mask_all)
+                    img_augmix = img + img_mix
+                else:
+                    img_augmix = (1 - m) * img + m * img_mix
+                return np.asarray(img_augmix, dtype=np.uint8)
+            elif self.use_oa and self.mixture_coeff == -1:
+                # Sample parameters
+                ws = np.float32(np.random.dirichlet([self.aug_prob_coeff] * self.mixture_width))
+                img_mix = np.zeros_like(img.copy(), dtype=np.float32)
+                for i in range(self.mixture_width):
+                    depth = self.mixture_depth if self.mixture_depth > 0 else np.random.randint(1, 4)
+                    img_aug = Image.fromarray(img.copy(), "RGB")
+                    for _ in range(depth):
+                        img_aug = self._aug(img_aug, img_size)
+                    img_mix += ws[i] * np.asarray(img_aug, dtype=np.float32)
+
+                if self.oa_version == 'dist':
+                    img_gray = cv2.cvtColor(img_mix, cv2.COLOR_RGB2GRAY)
+                    img_gray_orig = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                    for (gt_bbox, mask_gt_bbox) in zip(self.gt_bboxes, self.mask_gt_bboxes_list):
+                        x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        bbox_img = img_gray[y1:y2, x1:x2].flatten()
+                        hist, _ = np.histogram(bbox_img, bins=128)
+                        prob_dist = hist / hist.sum()
+                        entropy = scipy.stats.entropy(prob_dist, base=2)
+                        raise NotImplementedError()
+                elif self.oa_version == 'scale':
+                    img = np.asarray(img, dtype=np.float32)
+
+                    # Sample m parameter according to scale
+                    m_list = []
+                    for scale in self.scale_gt_bboxes_list:
+                        for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
+                            if scale_thrs[0] <= scale and scale < scale_thrs[1]:
+                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                break
+
+                    # Mix orig and aug for gt_bbox
+                    orig, aug = np.zeros_like(img, dtype=np.float32), np.zeros_like(img_mix, dtype=np.float32)
+                    for mask_gt_bbox, m in zip(self.mask_gt_bboxes_list, m_list):
+                        orig += m * img * mask_gt_bbox
+                        aug += (1.0 - m) * img_mix * mask_gt_bbox
+
+                    # Mix orig and aug for background
+                    mask_all = np.sum(self.mask_gt_bboxes_list, axis=0) # np.clip(np.sum(self.mask_gt_bboxes_list, axis=0), 0, 1)
+                    m = np.random.beta(1.0, 1.0)
+                    orig += m * img * (1.0 - mask_all)
+                    aug += (1.0 - m) * img_mix * (1.0 - mask_all)
+
+                    img, img_mix = orig, aug
+                elif self.oa_version == 'meanstd':
+                    img = np.asarray(img, dtype=np.float32)
+
+                    # Sample m parameter according to scale
+                    img_gray_orig = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                    m_list = []
+                    for gt_bbox in self.gt_bboxes:
+                        x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        bbox_img = img_gray_orig[y1:y2, x1:x2].flatten()
+                        mean, std = np.mean(bbox_img), np.std(bbox_img)
+                        for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
+                            if scale_thrs[0] <= mean/std and mean/std < scale_thrs[1]:
+                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                break
+
+                    # Mix orig and aug for gt_bbox
+                    orig, aug = np.zeros_like(img, dtype=np.float32), np.zeros_like(img_mix, dtype=np.float32)
+                    for mask_gt_bbox, m in zip(self.mask_gt_bboxes_list, m_list):
+                        orig += m * img * mask_gt_bbox
+                        aug += (1.0 - m) * img_mix * mask_gt_bbox
+
+                    # Mix orig and aug for background
+                    mask_all = np.sum(self.mask_gt_bboxes_list, axis=0)
+                    m = np.random.beta(1.0, 1.0)
+                    orig += m * img * (1.0 - mask_all)
+                    aug += (1.0 - m) * img_mix * (1.0 - mask_all)
+
+                    img, img_mix = orig, aug
+                elif self.oa_version == 'std':
+                    img = np.asarray(img, dtype=np.float32)
+
+                    # Sample m parameter according to scale
+                    img_gray_orig = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                    m_list = []
+                    for gt_bbox in self.gt_bboxes:
+                        x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        bbox_img = img_gray_orig[y1:y2, x1:x2].flatten()
+                        std = np.std(bbox_img)
+                        for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
+                            if scale_thrs[0] <= std and std < scale_thrs[1]:
+                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                break
+
+                    # Mix orig and aug for gt_bbox
+                    orig, aug = np.zeros_like(img, dtype=np.float32), np.zeros_like(img_mix, dtype=np.float32)
+                    for mask_gt_bbox, m in zip(self.mask_gt_bboxes_list, m_list):
+                        orig += m * img * mask_gt_bbox
+                        aug += (1.0 - m) * img_mix * mask_gt_bbox
+
+                    # Mix orig and aug for background
+                    mask_all = np.sum(self.mask_gt_bboxes_list, axis=0)
+                    m = np.random.beta(1.0, 1.0)
+                    orig += m * img * (1.0 - mask_all)
+                    aug += (1.0 - m) * img_mix * (1.0 - mask_all)
+
+                    img, img_mix = orig, aug
+                elif self.oa_version == 'saliency':
+                    img = np.asarray(img, dtype=np.float32)
+
+                    # Sample m parameter according to scale
+                    m_list = []
+                    for gt_bbox in self.gt_bboxes:
+                        x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        bbox_img = img[y1:y2, x1:x2]
+                        saliency = cv2.saliency.StaticSaliencySpectralResidual_create() # saliency = cv2.saliency.StaticSaliencyFineGrained_create()
+                        (success, saliency_map) = saliency.computeSaliency(bbox_img)
+                        saliency_score = np.mean((saliency_map * 255).astype("uint8"))
+                        for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
+                            if scale_thrs[0] <= saliency_score and saliency_score < scale_thrs[1]:
+                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                break
+
+                    # Mix orig and aug for gt_bbox
+                    orig, aug = np.zeros_like(img, dtype=np.float32), np.zeros_like(img_mix, dtype=np.float32)
+                    for mask_gt_bbox, m in zip(self.mask_gt_bboxes_list, m_list):
+                        orig += m * img * mask_gt_bbox
+                        aug += (1.0 - m) * img_mix * mask_gt_bbox
+
+                    # Mix orig and aug for background
+                    mask_all = np.sum(self.mask_gt_bboxes_list, axis=0)
+                    m = np.random.beta(1.0, 1.0)
+                    orig += m * img * (1.0 - mask_all)
+                    aug += (1.0 - m) * img_mix * (1.0 - mask_all)
+
+                    img, img_mix = orig, aug
+
                 img_augmix = img + img_mix
+
+                return np.asarray(img_augmix, dtype=np.uint8)
             else:
-                img_augmix = (1 - m) * img + m * img_mix
-            return np.asarray(img_augmix, dtype=np.uint8)
+                raise NotImplementedError
         else:
             img_aug = self._aug(Image.fromarray(img.copy(), "RGB"), img_size)
             return np.asarray(img_aug, dtype=np.uint8)
