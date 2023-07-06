@@ -32,12 +32,21 @@ class RandomColor:
             self.mixture_depth = mixture_depth
         self.use_oa = use_oa
         if use_oa:
+            self.oa_version = oa_version
+            if oa_version == 'scale':
+                self.scale_thresholds = [(0, 7), (7, 14), (14, 28), (28, 56), (56, 112), (112, 224), (224, 448), (448, 100000)]
+                self.m_mins = [1.0 - i / len(self.scale_thresholds) for i in range(1, len(self.scale_thresholds) + 1)]
+            elif oa_version == 'std':
+                self.scale_thresholds = [(0, 10), (10, 20), (20, 30), (30, 40), (40, 100000)]
+                self.m_mins = [1.0 - i / len(self.scale_thresholds) for i in range(1, len(self.scale_thresholds) + 1)]
+            elif oa_version == 'saliency':
+                self.scale_thresholds = [(0, 5), (5, 10), (10, 20), (20, 100000)]
+                self.m_mins = [1.0 - i / len(self.scale_thresholds) for i in range(1, len(self.scale_thresholds) + 1)]
             self.mixture_coeff = (20.0, 5.0) if mixture_coeff is None else mixture_coeff
             self.use_blur = use_blur
             if use_blur:
                 self.spatial_ratio = spatial_ratio  # Boost blurred mask generation
                 self.sigma_ratio = sigma_ratio
-        self.oa_version = oa_version
 
     def _generate_mask_gt_bboxes_list(self, img_shape, gt_bboxes):
         (h_img, w_img, c_img) = img_shape
@@ -55,12 +64,16 @@ class RandomColor:
             mask_gt_bboxes = np.zeros(target_shape, dtype=np.float32)
             mask_gt_bboxes[y1:y2, x1:x2, :] = 1.0
             if self.use_blur:
-                if (sigma_list[i][0] <= 0 or sigma_list[i][1] <= 0):
-                    mask_gt_bboxes = None
-                else:
+                if not (sigma_list[i][0] <= 0 or sigma_list[i][1] <= 0):
                     mask_gt_bboxes = cv2.GaussianBlur(mask_gt_bboxes, (0, 0),
                                                       sigmaX=sigma_list[i][0], sigmaY=sigma_list[i][1])
-            self.mask_gt_bboxes_list.append(cv2.resize(mask_gt_bboxes, (w_img, h_img)))
+                self.mask_gt_bboxes_list.append(cv2.resize(mask_gt_bboxes, (w_img, h_img)))
+
+        if self.oa_version == 'scale':
+            scales = np.sqrt(
+                (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * (gt_bboxes[:, 3] - gt_bboxes[:, 1])
+            )
+            self.scale_gt_bboxes_list = list(scales)
 
     def aug(self, img, gt_bboxes=None):
         assert np.max(img) <= 1 and 0 <=np.min(img), "img must be in [0, 1]"
@@ -69,45 +82,116 @@ class RandomColor:
         cut = np.random.randint(2, self.cut_max)
         k_min = np.random.randint(1, cut)
 
-        # Mask
-        if self.use_oa:
-            masks = np.zeros((len(gt_bboxes), *img.shape))
-            for i, bbox in enumerate(gt_bboxes):
-                mask = np.zeros(img.shape, dtype=np.uint8)
-                x1, y1, x2, y2 = bbox
-                sigma_x, sigma_y = (x2 - x1) / 6.0, (y2 - y1) / 6.0
-                kernel_x, kernel_y = 2 * int(4 * sigma_x) + 1, 2 * int(4 * sigma_y) + 1
-                cv2.rectangle(mask, (int(x1), int(y1)), (int(x2), int(y2)), color=(255, 255, 255), thickness=-1)
-                masks[i] = cv2.GaussianBlur(mask, (kernel_x, kernel_y), sigmaX=sigma_x, sigmaY=sigma_y)
-            mask = np.max(masks, axis=0)
-
         # Augmentation
         freqs = np.zeros(img.shape, dtype=np.float32)
         for i in range(k_min, min(k_min+20, cut)):
             beta = np.random.rand(3) * np.sqrt(np.random.uniform(self.T_min, self.T_max))
-            if self.use_oa:
-                _freqs = beta * np.sin(math.pi * i * copy.deepcopy(img))
-                if self.oa_version == 'none':
-                    freqs += _freqs * (1.0 - mask / 255)
-                elif self.oa_version == 'random':
-                    if np.random.rand() < 0.5:
-                        _freqs = _freqs * (1.0 - mask / 255)
-                    freqs += _freqs
-                elif self.oa_version == 'mix':
-                    freqs += _freqs
-                else:
-                    raise NotImplementedError
-            else:
-                freqs += beta * np.sin(math.pi * i * copy.deepcopy(img))
+            freqs += beta * np.sin(math.pi * i * copy.deepcopy(img))
         img_aug = np.clip(img + freqs, 0, 1)
 
+        _img = img.copy()
+        _img_mix = img_aug.copy()
+        # img = _img.copy()
+        # img_aug = _img_mix.copy()
         if self.use_mix:
             if self.use_oa:
-                m = np.float32(np.random.beta(self.mixture_coeff[0], self.mixture_coeff[1]))
-                mask_all = np.max(self.mask_gt_bboxes_list, axis=0)
-                _img = m * img * mask_all + (1.0 - m) * img * (1.0 - mask_all)
-                _img_aug = (1.0 - m) * img_aug * mask_all + m * img_aug * (1.0 - mask_all)
-                img_augmix = _img + _img_aug
+                if self.oa_version == 'saliency':
+                    img = np.asarray(img, dtype=np.float32)
+
+                    # Sample m parameter according to scale
+                    m_list = []
+                    for gt_bbox in self.gt_bboxes:
+                        x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        if x2 - x1 < 1 or y2 - y1 < 1:
+                            m_list.append(0.0)
+                            continue
+                        bbox_img = img[y1:y2, x1:x2]
+                        saliency = cv2.saliency.StaticSaliencySpectralResidual_create()  # saliency = cv2.saliency.StaticSaliencyFineGrained_create()
+                        (success, saliency_map) = saliency.computeSaliency(bbox_img)
+                        saliency_score = np.mean((saliency_map * 255).astype("uint8"))
+                        for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
+                            if scale_thrs[0] <= saliency_score and saliency_score < scale_thrs[1]:
+                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                break
+
+                    # Mix orig and aug for gt_bbox
+                    orig, aug = np.zeros_like(img, dtype=np.float32), np.zeros_like(img_aug, dtype=np.float32)
+                    for mask_gt_bbox, m in zip(self.mask_gt_bboxes_list, m_list):
+                        orig += m * img * mask_gt_bbox
+                        aug += (1.0 - m) * img_aug * mask_gt_bbox
+
+                    # Mix orig and aug for background
+                    mask_all = np.sum(self.mask_gt_bboxes_list, axis=0) # np.max(self.mask_gt_bboxes_list, axis=0)
+                    m = np.random.beta(1.0, 1.0)
+                    orig += m * img * (1.0 - mask_all)
+                    aug += (1.0 - m) * img_aug * (1.0 - mask_all)
+
+                    img, img_aug = orig, aug
+                elif self.oa_version == 'scale':
+                    img = np.asarray(img, dtype=np.float32)
+
+                    # Sample m parameter according to scale
+                    m_list = []
+                    for scale in self.scale_gt_bboxes_list:
+                        for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
+                            if scale_thrs[0] <= scale and scale < scale_thrs[1]:
+                                if self.use_mrange:
+                                    m_list.append(np.float32(np.random.uniform(m_min, (1.0 - m_min) / 2.0)))
+                                else:
+                                    m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                break
+
+                    # Mix orig and aug for gt_bbox
+                    orig, aug = np.zeros_like(img, dtype=np.float32), np.zeros_like(img_aug, dtype=np.float32)
+                    for mask_gt_bbox, m in zip(self.mask_gt_bboxes_list, m_list):
+                        orig += m * img * mask_gt_bbox
+                        aug += (1.0 - m) * img_aug * mask_gt_bbox
+
+                    # Mix orig and aug for background
+                    mask_all = np.sum(self.mask_gt_bboxes_list,
+                                      axis=0)  # np.clip(np.sum(self.mask_gt_bboxes_list, axis=0), 0, 1)
+                    m = np.random.beta(1.0, 1.0)
+                    orig += m * img * (1.0 - mask_all)
+                    aug += (1.0 - m) * img_aug * (1.0 - mask_all)
+
+                    img, img_aug = orig, aug
+                elif self.oa_version == 'std':
+                    img = np.asarray(img, dtype=np.float32)
+
+                    # Sample m parameter according to scale
+                    img_gray_orig = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                    m_list = []
+                    for gt_bbox in self.gt_bboxes:
+                        x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        if x2 - x1 < 1 or y2 - y1 < 1:
+                            m_list.append(0.0)
+                            continue
+                        bbox_img = img_gray_orig[y1:y2, x1:x2].flatten()
+                        std = np.std(bbox_img)
+                        for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
+                            if scale_thrs[0] <= std and std < scale_thrs[1]:
+                                if self.use_mrange:
+                                    m_list.append(np.float32(np.random.uniform(m_min, (1.0 - m_min) / 2.0)))
+                                else:
+                                    m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                break
+
+                    # Mix orig and aug for gt_bbox
+                    orig, aug = np.zeros_like(img, dtype=np.float32), np.zeros_like(img_aug, dtype=np.float32)
+                    for mask_gt_bbox, m in zip(self.mask_gt_bboxes_list, m_list):
+                        orig += m * img * mask_gt_bbox
+                        aug += (1.0 - m) * img_aug * mask_gt_bbox
+
+                    # Mix orig and aug for background
+                    mask_all = np.sum(self.mask_gt_bboxes_list, axis=0)
+                    m = np.random.beta(1.0, 1.0)
+                    orig += m * img * (1.0 - mask_all)
+                    aug += (1.0 - m) * img_aug * (1.0 - mask_all)
+
+                    img, img_aug = orig, aug
+
+                img_augmix = img + img_aug
+
             else:
                 m = np.float32(np.random.beta(self.mixture_coeff[0], self.mixture_coeff[1]))
                 img_augmix = (1 - m) * img + m * img_aug
@@ -123,6 +207,7 @@ class RandomColor:
 
         if self.use_oa:
             self._generate_mask_gt_bboxes_list(img_shape=results['img'].shape, gt_bboxes=results['gt_bboxes'])
+            self.gt_bboxes = results['gt_bboxes']
 
         results['custom_fields'] = []
 
