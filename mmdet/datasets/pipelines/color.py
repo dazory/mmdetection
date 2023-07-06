@@ -60,6 +60,7 @@ class Color:
                  num_views=2, keep_orig=True,
                  use_mix=False, mixture_width=3, mixture_depth=-1, mixture_coeff=None,
                  use_oa=False, oa_version='none', use_blur=True, spatial_ratio=4, sigma_ratio=0.3,
+                 use_mrange=False,
                  severity=3,
                  ):
         self.version = version
@@ -96,6 +97,8 @@ class Color:
             if use_blur:
                 self.spatial_ratio = spatial_ratio  # Boost blurred mask generation
                 self.sigma_ratio = sigma_ratio
+
+        self.use_mrange = use_mrange
 
         self.severity = severity
 
@@ -193,17 +196,7 @@ class Color:
                         img_aug = self._aug(img_aug, img_size)
                     img_mix += ws[i] * np.asarray(img_aug, dtype=np.float32)
 
-                if self.oa_version == 'dist':
-                    img_gray = cv2.cvtColor(img_mix, cv2.COLOR_RGB2GRAY)
-                    img_gray_orig = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-                    for (gt_bbox, mask_gt_bbox) in zip(self.gt_bboxes, self.mask_gt_bboxes_list):
-                        x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
-                        bbox_img = img_gray[y1:y2, x1:x2].flatten()
-                        hist, _ = np.histogram(bbox_img, bins=128)
-                        prob_dist = hist / hist.sum()
-                        entropy = scipy.stats.entropy(prob_dist, base=2)
-                        raise NotImplementedError()
-                elif self.oa_version == 'scale':
+                if self.oa_version == 'scale':
                     img = np.asarray(img, dtype=np.float32)
 
                     # Sample m parameter according to scale
@@ -211,7 +204,10 @@ class Color:
                     for scale in self.scale_gt_bboxes_list:
                         for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
                             if scale_thrs[0] <= scale and scale < scale_thrs[1]:
-                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                if self.use_mrange:
+                                    m_list.append(np.float32(np.random.uniform(m_min, (1.0 - m_min) / 2.0)))
+                                else:
+                                    m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
                                 break
 
                     # Mix orig and aug for gt_bbox
@@ -235,11 +231,17 @@ class Color:
                     m_list = []
                     for gt_bbox in self.gt_bboxes:
                         x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        if x2 - x1 < 1 or y2 - y1 < 1:
+                            m_list.append(0.0)
+                            continue
                         bbox_img = img_gray_orig[y1:y2, x1:x2].flatten()
                         mean, std = np.mean(bbox_img), np.std(bbox_img)
                         for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
                             if scale_thrs[0] <= mean/std and mean/std < scale_thrs[1]:
-                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                if self.use_mrange:
+                                    m_list.append(np.float32(np.random.uniform(m_min, (1.0 - m_min) / 2.0)))
+                                else:
+                                    m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
                                 break
 
                     # Mix orig and aug for gt_bbox
@@ -263,11 +265,17 @@ class Color:
                     m_list = []
                     for gt_bbox in self.gt_bboxes:
                         x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        if x2 - x1 < 1 or y2 - y1 < 1:
+                            m_list.append(0.0)
+                            continue
                         bbox_img = img_gray_orig[y1:y2, x1:x2].flatten()
                         std = np.std(bbox_img)
                         for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
                             if scale_thrs[0] <= std and std < scale_thrs[1]:
-                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                if self.use_mrange:
+                                    m_list.append(np.float32(np.random.uniform(m_min, (1.0 - m_min) / 2.0)))
+                                else:
+                                    m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
                                 break
 
                     # Mix orig and aug for gt_bbox
@@ -290,13 +298,19 @@ class Color:
                     m_list = []
                     for gt_bbox in self.gt_bboxes:
                         x1, y1, x2, y2 = np.asarray(gt_bbox, dtype=np.uint32)
+                        if x2 - x1 < 1 or y2 - y1 < 1:
+                            m_list.append(0.0)
+                            continue
                         bbox_img = img[y1:y2, x1:x2]
-                        saliency = cv2.saliency.StaticSaliencySpectralResidual_create() # saliency = cv2.saliency.StaticSaliencyFineGrained_create()
+                        saliency = cv2.saliency.StaticSaliencySpectralResidual_create()  # saliency = cv2.saliency.StaticSaliencyFineGrained_create()
                         (success, saliency_map) = saliency.computeSaliency(bbox_img)
                         saliency_score = np.mean((saliency_map * 255).astype("uint8"))
                         for scale_thrs, m_min in zip(self.scale_thresholds, self.m_mins):
                             if scale_thrs[0] <= saliency_score and saliency_score < scale_thrs[1]:
-                                m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
+                                if self.use_mrange:
+                                    m_list.append(np.float32(np.random.uniform(m_min, (1.0 - m_min) / 2.0)))
+                                else:
+                                    m_list.append(np.float32(np.random.uniform(m_min, 1.0)))
                                 break
 
                     # Mix orig and aug for gt_bbox
